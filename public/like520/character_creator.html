@@ -68,28 +68,28 @@
     }
   }
 
-  header { flex-shrink: 0; padding: 6px 20px 2px; text-align: center; }
+  header { flex-shrink: 0; padding: 4px 16px 0; text-align: center; }
   .title-cn {
-    font-size: 14px; font-weight: 600; letter-spacing: 1px; color: var(--rose-dark);
-    display: flex; align-items: center; justify-content: center; gap: 6px;
+    font-size: 12px; font-weight: 600; letter-spacing: 1px; color: var(--rose-dark);
+    display: flex; align-items: center; justify-content: center; gap: 5px;
   }
   .title-cn::before, .title-cn::after {
-    content: ""; width: 18px; height: 1px;
+    content: ""; width: 14px; height: 1px;
     background: linear-gradient(90deg, transparent, var(--rose-deep), transparent);
   }
-  .title-en { font-size: 8px; letter-spacing: 3px; color: var(--text-soft); margin-top: 1px; }
+  .title-en { font-size: 7px; letter-spacing: 2px; color: var(--text-soft); margin-top: 1px; }
 
   .stage {
     flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
-    padding: 4px 16px; position: relative;
+    padding: 2px 12px; position: relative;
   }
   .character-frame {
-    width: 100%; max-width: 380px;
-    aspect-ratio: 1 / 1.05;
+    width: 100%; max-width: 320px;
+    aspect-ratio: 1 / 1;
     background: radial-gradient(ellipse at 50% 35%, #FFFFFF 0%, #FFF8F1 60%, #FCEDD9 100%);
-    border-radius: 32px;
+    border-radius: 24px;
     border: 2px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 12px 32px rgba(199, 97, 130, 0.15), inset 0 0 0 1px rgba(212, 165, 116, 0.2);
+    box-shadow: 0 8px 24px rgba(199, 97, 130, 0.15), inset 0 0 0 1px rgba(212, 165, 116, 0.2);
     position: relative; overflow: hidden;
   }
   .character-frame::before {
@@ -236,15 +236,18 @@
   .eye-side-tabs {
     display: inline-flex; background: var(--cream-deep); border-radius: 12px; padding: 2px;
     margin-left: 10px;
+    border: 1px solid rgba(199, 97, 130, 0.15);
   }
   .eye-side-tabs button {
     background: transparent; border: none; color: var(--text-soft);
-    padding: 3px 10px; font-size: 10.5px; border-radius: 10px;
+    padding: 4px 12px; font-size: 11px; border-radius: 10px;
     cursor: pointer; transition: all 0.2s;
+    font-weight: 500;
   }
   .eye-side-tabs button.active {
-    background: white; color: var(--rose-dark); font-weight: 600;
-    box-shadow: 0 1px 3px rgba(199, 97, 130, 0.15);
+    background: var(--rose-deep); color: white; font-weight: 700;
+    box-shadow: 0 2px 6px rgba(199, 97, 130, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+    transform: scale(1.02);
   }
 
   .options {
@@ -549,11 +552,13 @@
 const IS_EMBEDDED = window.parent !== window;
 let LIKE520_MODE = 'char';
 let LIKE520_CHAR_NAME = '';
+let LIKE520_IS_SULLY = false;
 
 function applyLike520Init(init) {
   if (!init) return;
   LIKE520_MODE = init.mode || 'char';
   LIKE520_CHAR_NAME = init.charName || '';
+  LIKE520_IS_SULLY = !!init.isSully;
   const titleCn = document.querySelector('.title-cn');
   if (titleCn) {
     titleCn.textContent = init.mode === 'user'
@@ -570,9 +575,10 @@ function applyLike520Init(init) {
         }
       }
     });
-    if (typeof renderPanel === 'function') renderPanel();
-    if (typeof renderCharacter === 'function') renderCharacter();
   }
+  // 任何 init 都强制重渲（isSully 变化会影响 special 项过滤）
+  if (typeof renderPanel === 'function') renderPanel();
+  if (typeof renderCharacter === 'function') renderCharacter();
 }
 
 if (IS_EMBEDDED) {
@@ -1287,6 +1293,8 @@ function renderPanel() {
   const focusedId = isMulti ? state.activeItemFocus[part.key] : null;
 
   part.items.forEach(item => {
+    // 非 Sully 角色：隐藏 special 项（fronthair_99 / eyes_99 是 Sully 专属）
+    if (item.special && !LIKE520_IS_SULLY) return;
     const btn = document.createElement("button");
     const selected = isSelected(part.key, item.id);
     const isFocus = isMulti && selected && item.id === focusedId;
@@ -1345,6 +1353,10 @@ function renderPanel() {
         } else {
           state.tintColor.eyes.linked = false;
         }
+        // 重新 toggle active class（手动同步避免重 render 全 panel）
+        eyeSideTabs.querySelectorAll("button").forEach(b2 => {
+          b2.classList.toggle("active", b2.dataset.side === state.eyeSide);
+        });
         renderColorPicker(part.key);
       };
     });
@@ -1915,8 +1927,25 @@ document.getElementById("btnReset").onclick = () => {
 document.getElementById("btnSave").onclick = async () => {
   const any = Object.values(state.selected).some(v => Array.isArray(v) ? v.length > 0 : v !== null);
   if (!any) { toast("先选几个配件再保存哦~"); return; }
-  try { await captureAndShow(); }
-  catch (err) { toast("保存失败，再试一次?"); console.error(err); }
+  const btn = document.getElementById("btnSave");
+  const origText = btn.innerHTML;
+  // 立即反馈 loading（手机上 html2canvas 比较慢，不给反馈 user 会以为没响应）
+  btn.disabled = true;
+  btn.style.opacity = '0.7';
+  btn.style.cursor = 'wait';
+  btn.innerHTML = '⏳ 出件中…';
+  toast("正在出件…");
+  try {
+    await captureAndShow();
+  } catch (err) {
+    toast("保存失败，再试一次?");
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+    btn.innerHTML = origText;
+  }
 };
 
 /* 存两种渲染结果的 dataUrl，切换不重新截图 */

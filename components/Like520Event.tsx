@@ -97,12 +97,13 @@ interface CreatorIframeProps {
     mode: 'char' | 'user';
     charName?: string;
     presets?: Record<string, string>;
+    isSully?: boolean;
     onConfirm: (result: ChibiResult) => void;
 }
 
 const CHAR_CREATOR_URL = (((import.meta as any).env?.BASE_URL ?? '/') + 'like520/character_creator.html').replace(/\/+/g, '/');
 
-const CreatorIframe: React.FC<CreatorIframeProps> = ({ mode, charName, presets, onConfirm }) => {
+const CreatorIframe: React.FC<CreatorIframeProps> = ({ mode, charName, presets, isSully, onConfirm }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
 
     useEffect(() => {
@@ -112,10 +113,10 @@ const CreatorIframe: React.FC<CreatorIframeProps> = ({ mode, charName, presets, 
             if (e.source !== iframeWin) return;
 
             if (e.data.type === 'like520_ready') {
-                console.log(`[520][creator:${mode}] iframe ready, sending init`);
+                console.log(`[520][creator:${mode}] iframe ready, sending init (isSully=${!!isSully})`);
                 iframeWin?.postMessage({
                     type: 'like520_init',
-                    payload: { mode, charName, presets },
+                    payload: { mode, charName, presets, isSully: !!isSully },
                 }, '*');
             } else if (e.data.type === 'like520_result' && e.data.payload) {
                 console.log(`[520][creator:${mode}] result received`);
@@ -129,7 +130,7 @@ const CreatorIframe: React.FC<CreatorIframeProps> = ({ mode, charName, presets, 
         };
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [mode, charName, presets, onConfirm]);
+    }, [mode, charName, presets, isSully, onConfirm]);
 
     return (
         <iframe
@@ -2113,34 +2114,103 @@ const BGMContext = React.createContext<{ muted: boolean; toggleMute: () => void 
 
 const HAS_BGM = Object.values(LIKE520_BGM_GROUPS).some(arr => arr && arr.length > 0);
 
+const BGM_HINT_DISMISSED_KEY = 'sullyos_like520_bgm_hint_dismissed';
+
 const BGMToggle: React.FC = () => {
     const ctx = React.useContext(BGMContext);
+    const [hintVisible, setHintVisible] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem(BGM_HINT_DISMISSED_KEY) !== '1';
+        } catch { return true; }
+    });
+    useEffect(() => {
+        if (!hintVisible) return;
+        const t = setTimeout(() => {
+            setHintVisible(false);
+            try { localStorage.setItem(BGM_HINT_DISMISSED_KEY, '1'); } catch { /* ignore */ }
+        }, 5500);
+        return () => clearTimeout(t);
+    }, [hintVisible]);
+
     if (!ctx || !HAS_BGM) return null;
     const { muted, toggleMute } = ctx;
+
+    const handleClick = () => {
+        if (hintVisible) {
+            setHintVisible(false);
+            try { localStorage.setItem(BGM_HINT_DISMISSED_KEY, '1'); } catch { /* ignore */ }
+        }
+        toggleMute();
+    };
+
     return (
-        <button
-            onClick={toggleMute}
-            title={muted ? '播放 BGM' : '静音'}
-            style={{
-                background: muted
-                    ? 'linear-gradient(180deg, rgba(255,248,236,0.95), rgba(245,234,212,0.85))'
-                    : 'linear-gradient(135deg, #f4e0a8 0%, #d4b16a 35%, #b8923f 65%, #8b6914 100%)',
-                color: muted ? '#8b6914' : '#fff8ec',
-                border: '1px solid #b8923f',
-                borderRadius: '50%',
-                width: 28,
-                height: 28,
-                display: 'inline-grid',
-                placeItems: 'center',
-                fontSize: 13,
-                cursor: 'pointer',
-                fontFamily: "'Cormorant Garamond', serif",
-                boxShadow: '0 2px 6px rgba(122,46,58,0.25), inset 0 1px 0 rgba(255,255,255,0.4)',
-                userSelect: 'none',
-            }}
-        >
-            {muted ? '🔇' : '♪'}
-        </button>
+        <div style={{ position: 'relative', display: 'inline-block' }}>
+            <button
+                onClick={handleClick}
+                title={muted ? '播放 BGM' : '静音'}
+                style={{
+                    background: muted
+                        ? 'linear-gradient(180deg, rgba(255,248,236,0.95), rgba(245,234,212,0.85))'
+                        : 'linear-gradient(135deg, #f4e0a8 0%, #d4b16a 35%, #b8923f 65%, #8b6914 100%)',
+                    color: muted ? '#8b6914' : '#fff8ec',
+                    border: '1px solid #b8923f',
+                    borderRadius: '50%',
+                    width: 28,
+                    height: 28,
+                    display: 'inline-grid',
+                    placeItems: 'center',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    fontFamily: "'Cormorant Garamond', serif",
+                    boxShadow: hintVisible
+                        ? '0 0 0 3px rgba(212,177,106,0.45), 0 4px 12px rgba(122,46,58,0.3), inset 0 1px 0 rgba(255,255,255,0.4)'
+                        : '0 2px 6px rgba(122,46,58,0.25), inset 0 1px 0 rgba(255,255,255,0.4)',
+                    userSelect: 'none',
+                    animation: hintVisible ? 'l520-bgm-hint-pulse 1.6s ease-in-out infinite' : 'none',
+                }}
+            >
+                {muted ? '🔇' : '♪'}
+            </button>
+            {hintVisible && (
+                <>
+                    <style>{`
+                        @keyframes l520-bgm-hint-pulse {
+                            0%,100% { box-shadow: 0 0 0 3px rgba(212,177,106,0.45), 0 4px 12px rgba(122,46,58,0.3), inset 0 1px 0 rgba(255,255,255,0.4); }
+                            50%     { box-shadow: 0 0 0 7px rgba(212,177,106,0.18), 0 6px 16px rgba(122,46,58,0.35), inset 0 1px 0 rgba(255,255,255,0.4); }
+                        }
+                        @keyframes l520-bgm-tip-in {
+                            0%   { opacity: 0; transform: translateY(-4px); }
+                            18%  { opacity: 1; transform: translateY(0); }
+                            82%  { opacity: 1; transform: translateY(0); }
+                            100% { opacity: 0; transform: translateY(-4px); }
+                        }
+                    `}</style>
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: 'calc(100% + 6px)',
+                            right: 0,
+                            zIndex: 30,
+                            background: 'rgba(255,248,236,0.97)',
+                            color: '#7a2e3a',
+                            border: '1px solid #b8923f',
+                            borderRadius: '4px 4px 4px 14px',
+                            padding: '5px 10px',
+                            fontSize: 10.5,
+                            fontFamily: "'Cormorant Garamond', 'Noto Serif SC', serif",
+                            fontStyle: 'italic',
+                            letterSpacing: '1px',
+                            whiteSpace: 'nowrap',
+                            boxShadow: '0 4px 10px rgba(122,46,58,0.25)',
+                            animation: 'l520-bgm-tip-in 5.5s ease-in-out forwards',
+                            pointerEvents: 'none',
+                        }}
+                    >
+                        ♪ 这里有音乐 · 嫌吵就点 ↑
+                    </div>
+                </>
+            )}
+        </div>
     );
 };
 
@@ -2456,6 +2526,7 @@ export const Like520Session: React.FC<SessionProps> = ({ charId, onClose }) => {
                         mode="char"
                         charName={char.name}
                         presets={isSullyChar(char) ? sullyPresets() : undefined}
+                        isSully={isSullyChar(char)}
                         onConfirm={handleCharChibiConfirm}
                     />
                 </div>
