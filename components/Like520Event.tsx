@@ -2683,19 +2683,20 @@ export const Like520Session: React.FC<SessionProps> = ({ charId, onClose }) => {
         }
     }, [char, userProfile, apiConfig]);
 
-    const startCallB = useCallback((aResult: Like520CallAResult, tucao: Like520TucaoKey) => {
+    const startCallB = useCallback(async (aResult: Like520CallAResult, tucao: Like520TucaoKey) => {
         if (callBStartedRef.current || !char || !apiConfig) return;
         callBStartedRef.current = true;
-        runLike520CallB(char, userProfile, apiConfig, aResult, tucao).then(r => {
+        try {
+            const recent = await DB.getMessagesByCharId(char.id);
+            const r = await runLike520CallB(char, userProfile, apiConfig, aResult, tucao, recent || []);
             setCallB(r);
-        }).catch(err => {
+        } catch (err) {
             console.error('[520] Call B failed:', err);
-            // 兜底：让用户在 wake_up/letter 阶段看到降级文案
             setCallB({
                 wake_up: ['……我们好像一起做了一个梦呀。', '不过，不是坏的那种。'],
                 letter: '（信生成出了点小问题。这是一段属于你的、未完成的话——但它一直在。）',
             });
-        });
+        }
     }, [char, userProfile, apiConfig]);
 
     // === Phase 导航 ===

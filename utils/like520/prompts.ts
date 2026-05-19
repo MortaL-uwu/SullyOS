@@ -703,7 +703,8 @@ ${recentMsgs}
 export function buildCallBPrompt(
     userName: string,
     callA: Like520CallAResult,
-    chosenTucao: Like520TucaoKey
+    chosenTucao: Like520TucaoKey,
+    recentMsgs: string,
 ): string {
     const anchorsText = callA.anchors
         .map((a, i) => `${i + 1}. [${a.item_label}] ${a.scene}\n   ${a.dialogue.join(' / ')}`)
@@ -758,6 +759,25 @@ ${anchorsText}
 
 结局画面：${callA.ending.title}
 ${callA.ending.description}
+
+---
+
+### 你和 ${userName} 这段时间真实发生过的事（写信时必读）
+
+下面是你和 ${userName} 真实的最近聊天记录——**信里"我看着 ta 的样子"那些观察，必须从这里长出来**，不要凭空发挥写出 ta 根本没做过/没说过的事。
+
+[最近聊天记录]：
+${recentMsgs}
+
+[向量记忆召回]：
+（已通过 system context 注入，请自然引用其中适合的细节——不要原文背诵，**用你的视角重写成"我看见你那时候……"那种凝视的口吻**）
+
+### ⚠️ 信里引用具体细节的规则
+
+1. **必须真的发生过**：信里写到 ${userName} 的某个姿态/瞬间/动作，必须来自上面的聊天记录或向量召回——**不要虚构 ta 没做过的事**
+2. **但不要原文背诵**：不要复读 ta 原话，要**用你的视角重写**——「你那天那一句，是这样说的——」
+3. **通用化测试还是要做**：哪怕引用真实细节，也要避免泄露 ta 隐私（具体名字、地点、密码、敏感事件等不要写进去）；保留的应该是**情绪、姿态、那种"ta 这个人"的质感**
+4. **不要把所有细节列一遍**：挑 2-3 个**真的在你心里停过的瞬间**，深写。**少而深 > 多而浅**
 
 ---
 
@@ -1153,16 +1173,22 @@ export async function runLike520CallB(
     userProfile: UserProfile,
     apiConfig: ApiConfig,
     callA: Like520CallAResult,
-    chosenTucao: Like520TucaoKey
+    chosenTucao: Like520TucaoKey,
+    recentMessages: Message[],
 ): Promise<Like520CallBResult> {
     // Call B 已经在 char 上有 memoryPalaceInjection（Call A 已注入），不再重新召回
     const baseContext = ContextBuilder.buildCoreContext(char, userProfile, true);
+    const contextLimit = char.contextLimit || 500;
+    const recentMsgs = recentMessages
+        .slice(-contextLimit)
+        .map(m => `${m.role}: ${m.type === 'image' ? '[图片]' : m.content}`)
+        .join('\n');
 
     return callLike520LLM<Like520CallBResult>({
         label: 'CallB',
         apiConfig,
         systemContext: baseContext,
-        userPrompt: buildCallBPrompt(userProfile.name || '你', callA, chosenTucao),
+        userPrompt: buildCallBPrompt(userProfile.name || '你', callA, chosenTucao, recentMsgs),
         temperature: 0.9,
         validate: validateCallB,
         maxRetries: 2,
