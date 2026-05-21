@@ -99,19 +99,61 @@ export default {
 /**
  * onLLMOutput hook — 每轮 LLM 输出后调一次, 返 decision payload.
  *
+ * Thin shim: 从 amsg-instant SessionContext 读字段 + normalize, 再委托给纯函数
+ * buildPushDecision. 业务逻辑 + 边界处理都在 buildPushDecision 里 (方便单测).
+ *
  * @param ctx 见 amsg-instant SessionContext: { sessionId, messages, llmOutputText,
  *            iteration, metadata, contactName, avatarUrl, llmResponse, ... }
  */
 async function onLLMOutput(ctx: any) {
-  const text: string = String(ctx.llmOutputText ?? '');
-  const sessionId: string = ctx.sessionId;
-  const iteration: number = Number(ctx.iteration ?? 0);
-  const contactName: string = ctx.contactName ?? '';
-  const avatarUrl: string | null = ctx.avatarUrl ?? null;
-  // metadata 透传: 客户端 sendInstantPush 时塞了 charId; SW 路由要它分发到具体角色
-  const callerMetadata = (ctx.metadata && typeof ctx.metadata === 'object') ? ctx.metadata : {};
+  return buildPushDecision({
+    llmOutputText: String(ctx.llmOutputText ?? ''),
+    sessionId: ctx.sessionId,
+    iteration: Number(ctx.iteration ?? 0),
+    contactName: ctx.contactName ?? '',
+    avatarUrl: ctx.avatarUrl ?? null,
+    // metadata 透传: 客户端 sendInstantPush 时塞了 charId; SW 路由要它分发到具体角色
+    callerMetadata: (ctx.metadata && typeof ctx.metadata === 'object') ? ctx.metadata : {},
+  });
+}
 
-  const result = classifyLLMOutput(text);
+// ─── Pure logic: 抽出来给单测 ──────────────────────────────────────────────
+
+export interface PushDecisionInput {
+  llmOutputText: string;
+  sessionId: string;
+  iteration: number;
+  contactName: string;
+  avatarUrl: string | null;
+  callerMetadata: Record<string, unknown>;
+}
+
+export interface PushDecisionDeps {
+  /** 自定义 size warn 回调; 默认走 console.warn. 测试用来 spy. */
+  onSizeWarn?: (bytes: number) => void;
+}
+
+export type PushDecision =
+  | { decision: 'tool-request'; pushPayload: unknown }
+  | { decision: 'finish'; pushPayload: unknown };
+
+/**
+ * 纯函数: 给 normalize 过的 ctx 字段, 出 { decision, pushPayload }.
+ *
+ * 跟 onLLMOutput 拆开就是为了能单测三条 push payload 路径 (tool-request 有
+ * prefix / 空 prefix / finish 含 directives) + sanitize-空串 ZWSP 守护
+ * (cumulative review 抓到过的回归点, 之前没自动化测试兜底).
+ *
+ * 注意: pushPayload 字段顺序对 wire 不重要, 但对单测断言重要 — 测试用
+ * partial match (toEqual + objectContaining) 而不是 byte-for-byte JSON 比.
+ */
+export function buildPushDecision(
+  input: PushDecisionInput,
+  deps?: PushDecisionDeps,
+): PushDecision {
+  const { llmOutputText, sessionId, iteration, contactName, avatarUrl, callerMetadata } = input;
+
+  const result = classifyLLMOutput(llmOutputText);
   const messageId = `msg_${sessionId}_${iteration}`;
   const baseCommon = {
     messageType: MESSAGE_TYPE.INSTANT,
@@ -154,8 +196,8 @@ async function onLLMOutput(ctx: any) {
       // amsg-instant pickSplitConfig 读的是请求级 payload.splitPattern, hook 返回
       // 的 pushPayload 上的同名字段会被静默忽略. 这里不重复塞.
     };
-    warnIfPayloadLarge(pushPayload);
-    return { decision: 'tool-request' as const, pushPayload };
+    warnIfPayloadLarge(pushPayload, deps?.onSizeWarn);
+    return { decision: 'tool-request', pushPayload };
   }
 
   // result.kind === 'finish' — 同 tool-request 分支的 sanitize 空串 → ZWSP 占位逻辑
@@ -182,21 +224,28 @@ async function onLLMOutput(ctx: any) {
     // splitPattern 禁用见上面分支同样的注释 — 客户端 instantPushClient 在 request
     // body 外层注入, hook 这里不重复.
   };
-  warnIfPayloadLarge(pushPayload);
-  return { decision: 'finish' as const, pushPayload };
+  warnIfPayloadLarge(pushPayload, deps?.onSizeWarn);
+  return { decision: 'finish', pushPayload };
 }
 
 /**
  * 早警告水位 — amsg-instant next.2 默认 maxInlineBytes=2600, 超了就 500
  * PAYLOAD_TOO_LARGE. 2300 留 ~300B margin 给 amsg-instant wrapping 字段
- * (kind/messageKind/_blob envelope 等). 只 log 不阻塞, 真撞限的话 amsg
- * 自己会兜底.
+ * (kind/messageKind/_blob envelope 等). 默认 console.warn, 测试可注入
+ * onSizeWarn 抓 bytes 参数.
  */
-function warnIfPayloadLarge(payload: unknown): void {
+function warnIfPayloadLarge(
+  payload: unknown,
+  onSizeWarn?: (bytes: number) => void,
+): void {
   try {
     const bytes = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
     if (bytes > 2300) {
-      console.warn('[instant-push] payload close to limit', { bytes });
+      if (onSizeWarn) {
+        onSizeWarn(bytes);
+      } else {
+        console.warn('[instant-push] payload close to limit', { bytes });
+      }
     }
   } catch {
     // JSON.stringify 抛 (循环引用?) 时不阻塞主流程

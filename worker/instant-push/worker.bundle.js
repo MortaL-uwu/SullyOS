@@ -2106,13 +2106,19 @@ var src_default = {
   }
 };
 async function onLLMOutput(ctx) {
-  const text = String(ctx.llmOutputText ?? "");
-  const sessionId = ctx.sessionId;
-  const iteration = Number(ctx.iteration ?? 0);
-  const contactName = ctx.contactName ?? "";
-  const avatarUrl = ctx.avatarUrl ?? null;
-  const callerMetadata = ctx.metadata && typeof ctx.metadata === "object" ? ctx.metadata : {};
-  const result = classifyLLMOutput(text);
+  return buildPushDecision({
+    llmOutputText: String(ctx.llmOutputText ?? ""),
+    sessionId: ctx.sessionId,
+    iteration: Number(ctx.iteration ?? 0),
+    contactName: ctx.contactName ?? "",
+    avatarUrl: ctx.avatarUrl ?? null,
+    // metadata 透传: 客户端 sendInstantPush 时塞了 charId; SW 路由要它分发到具体角色
+    callerMetadata: ctx.metadata && typeof ctx.metadata === "object" ? ctx.metadata : {}
+  });
+}
+function buildPushDecision(input, deps) {
+  const { llmOutputText, sessionId, iteration, contactName, avatarUrl, callerMetadata } = input;
+  const result = classifyLLMOutput(llmOutputText);
   const messageId = `msg_${sessionId}_${iteration}`;
   const baseCommon = {
     messageType: MESSAGE_TYPE.INSTANT,
@@ -2144,7 +2150,7 @@ async function onLLMOutput(ctx) {
       // amsg-instant pickSplitConfig 读的是请求级 payload.splitPattern, hook 返回
       // 的 pushPayload 上的同名字段会被静默忽略. 这里不重复塞.
     };
-    warnIfPayloadLarge(pushPayload2);
+    warnIfPayloadLarge(pushPayload2, deps?.onSizeWarn);
     return { decision: "tool-request", pushPayload: pushPayload2 };
   }
   const notification = result.sanitizedBody !== result.cleanedText ? { ...notificationBase, body: result.sanitizedBody || "\u200B" } : notificationBase;
@@ -2168,18 +2174,23 @@ async function onLLMOutput(ctx) {
     // splitPattern 禁用见上面分支同样的注释 — 客户端 instantPushClient 在 request
     // body 外层注入, hook 这里不重复.
   };
-  warnIfPayloadLarge(pushPayload);
+  warnIfPayloadLarge(pushPayload, deps?.onSizeWarn);
   return { decision: "finish", pushPayload };
 }
-function warnIfPayloadLarge(payload) {
+function warnIfPayloadLarge(payload, onSizeWarn) {
   try {
     const bytes = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
     if (bytes > 2300) {
-      console.warn("[instant-push] payload close to limit", { bytes });
+      if (onSizeWarn) {
+        onSizeWarn(bytes);
+      } else {
+        console.warn("[instant-push] payload close to limit", { bytes });
+      }
     }
   } catch {
   }
 }
 export {
+  buildPushDecision,
   src_default as default
 };
