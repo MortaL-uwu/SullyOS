@@ -599,16 +599,24 @@ const Chat: React.FC = () => {
     useEffect(() => {
         const handler = (e: Event) => {
             const detail = (e as CustomEvent).detail;
-            if (detail?.charId === activeCharacterId) {
-                // Reload all characters to pick up updated activeBuffs / buffInjection
-                DB.getAllCharacters().then(all => {
-                    const updated = all.find(c => c.id === activeCharacterId);
-                    if (updated) updateCharacter(updated.id, {
-                        activeBuffs: updated.activeBuffs,
-                        buffInjection: updated.buffInjection
-                    });
-                }).catch(() => {});
+            if (detail?.charId !== activeCharacterId) return;
+            // 优先用事件直接携带的 buffs/buffInjection 落 OSContext —— 不重读 DB, 避开
+            // saveCharacter 未等事务提交、以及 instant flush 下 DB 重读偶发拿旧值的竞态.
+            if (Array.isArray(detail.buffs)) {
+                updateCharacter(activeCharacterId, {
+                    activeBuffs: detail.buffs,
+                    buffInjection: typeof detail.buffInjection === 'string' ? detail.buffInjection : ''
+                });
+                return;
             }
+            // 无 buffs 的纯 UI 刷新信号 (activeMsgRuntime line-300 等): 从 DB 兜底重读.
+            DB.getAllCharacters().then(all => {
+                const updated = all.find(c => c.id === activeCharacterId);
+                if (updated) updateCharacter(updated.id, {
+                    activeBuffs: updated.activeBuffs,
+                    buffInjection: updated.buffInjection
+                });
+            }).catch(() => {});
         };
         window.addEventListener('emotion-updated', handler);
         return () => window.removeEventListener('emotion-updated', handler);

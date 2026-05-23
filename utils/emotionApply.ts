@@ -107,8 +107,10 @@ export async function applyEmotionEvalRaw(
         };
         await DB.saveCharacter(updated);
 
+        // detail 直接带上 buffs + buffInjection: 监听方 (Chat) 可直接落 OSContext, 不必重读 DB
+        // —— 避开 saveCharacter 未等事务提交 / instant flush 下 DB 重读偶发拿旧值的竞态.
         window.dispatchEvent(new CustomEvent('emotion-updated', {
-            detail: { charId: charData.id, buffs: sanitizedBuffs },
+            detail: { charId: charData.id, buffs: sanitizedBuffs, buffInjection: result.injection || '' },
         }));
         console.log('🎭 [Emotion] Updated buffs:', sanitizedBuffs.map((b) => b.label).join(', ') || 'none');
         if (innerStateOut) console.log(`🌊 [InnerState] ${charData.name}: ${innerStateOut}`);
