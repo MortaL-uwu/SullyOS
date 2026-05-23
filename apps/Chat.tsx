@@ -24,6 +24,9 @@ import { isInstantConfigReady, loadInstantConfig } from '../utils/instantPushCli
 
 const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
 
+// 稳定的空 Set 引用, 给 instantPendingUserIds 派生用 (避免每次渲染新建空 Set 触发下游 memo).
+const EMPTY_NUM_SET: ReadonlySet<number> = new Set<number>();
+
 const Chat: React.FC = () => {
     const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, clearUnread, realtimeConfig, memoryPalaceConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
@@ -1853,6 +1856,21 @@ const Chat: React.FC = () => {
 
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
 
+    // "准备中"三个点: instant 模式下从 isTyping 派生 (触发 → worker 回复落地的整个等待期间),
+    // 给"上一条 assistant 之后的所有 user 消息"显示. 不再只依赖 handleManualTrigger / 自动路径
+    // 点击时快照的 pendingInstantMsgIds —— 那个靠 onDispatched 回调清除, 窗口极短 (fetch 一排进
+    // 网络栈就清) 且依赖点击瞬间 messages 已含新消息, 实测常常根本不显示. 派生值每次渲染按当前
+    // messages + isTyping 重算, 鲁棒可见. 两者 OR, 保留旧 set 作兜底.
+    const instantPendingUserIds = useMemo(() => {
+        if (!isTyping || !isInstantConfigReady()) return EMPTY_NUM_SET;
+        const ids = new Set<number>();
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'assistant') break;
+            if (messages[i].role === 'user') ids.add(messages[i].id);
+        }
+        return ids;
+    }, [isTyping, messages]);
+
     // Reset active category if it becomes invisible for the current character
     useEffect(() => {
         if (activeCategory !== 'default' && visibleCategories.length > 0 && !visibleCategories.some(c => c.id === activeCategory)) {
@@ -2357,7 +2375,7 @@ const Chat: React.FC = () => {
                             bubbleVariant={osTheme.chatBubbleStyle}
                             messageSpacing={osTheme.chatMessageSpacing}
                             showTimestamp={osTheme.chatShowTimestamp}
-                            isPending={pendingInstantMsgIds.has(m.id)}
+                            isPending={instantPendingUserIds.has(m.id) || pendingInstantMsgIds.has(m.id)}
                             pendingIndicator={osTheme.chatPendingIndicator !== false}
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
