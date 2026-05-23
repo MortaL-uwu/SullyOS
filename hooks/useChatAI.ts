@@ -64,10 +64,11 @@ function buildEmotionEvalPrompt(
         ? JSON.stringify(currentBuffs, null, 2)
         : '（当前无buff，情绪平稳）';
 
-    // instant 模式 (includeContext=false): system prompt + 对话历史不在 prompt 里重复嵌入,
-    // 改由 worker 把本次请求已有的 messages 作为前文接上 —— 否则上下文发两遍, 请求体翻倍撑过
-    // keepalive 64KB 上限, 浏览器降级成非 keepalive, 用户一关前端飞行中的 fetch 就被取消,
-    // 主回复扣了费却没推送/没情绪. 本地模式 (includeContext=true) 自带完整上下文, 不受影响.
+    // instant 模式 (includeContext=false): system prompt + 对话历史不在这里嵌入, 改由 worker 把本次
+    // 请求已有的 messages 摊平成文本、注入到同一条 user 消息里 (还原本地的「单条 user 消息」语义).
+    // 关键: 不能让 worker 把 messages 当真消息数组直接发 —— 那样角色扮演 system prompt 会变成情绪
+    // 评估 LLM 的 system 指令, 把它带成「扮演角色」而非「分析情绪」, 导致一直 changed:false.
+    // 这样既不重复发上下文 (请求体小, keepalive 不被降级), 评估语义又跟本地一致.
     const contextSection = includeContext
         ? `
 
@@ -76,10 +77,7 @@ ${mainSystemPrompt}
 
 ## 完整对话历史（与主 API 看到的消息历史完全一致）
 ${recentLines}`
-        : `
-
-## 上下文说明
-角色此刻看到的完整 system prompt 与对话历史，已作为本次请求的前文消息提供，请直接基于前文消息进行分析。`;
+        : '';
 
     return `你是一个角色情绪分析系统。请分析角色「${char.name}」当前的情绪底色状态。${contextSection}
 

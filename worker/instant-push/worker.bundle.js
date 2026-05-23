@@ -2441,7 +2441,26 @@ async function runEmotionEval(body, env) {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
   const charId = body?.metadata && typeof body.metadata === "object" ? body.metadata.charId : "";
   const priorMessages = Array.isArray(body?.messages) ? body.messages : [];
-  const evalMessages = priorMessages.length > 0 ? [...priorMessages, { role: "user", content: String(ee.prompt) }] : [{ role: "user", content: String(ee.prompt) }];
+  const contactName = body?.contactName || "\u89D2\u8272";
+  const flattenContent = (content) => {
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content.map((p) => p?.type === "text" ? p.text || "" : p?.type === "image_url" ? "[\u56FE\u7247]" : "").filter(Boolean).join(" ");
+    }
+    return "";
+  };
+  const contextText = priorMessages.map((m) => {
+    const role = m.role === "system" ? "\u7CFB\u7EDF\u8BBE\u5B9A" : m.role === "user" ? "\u7528\u6237" : m.role === "assistant" ? contactName : String(m.role || "");
+    return `[${role}]:
+${flattenContent(m.content)}`;
+  }).join("\n\n");
+  const evalContent = contextText ? `## \u89D2\u8272\u6B64\u523B\u770B\u5230\u7684\u5B8C\u6574\u4E0A\u4E0B\u6587\u4E0E\u5BF9\u8BDD\u5386\u53F2\uFF08\u4E0E\u4E3B API \u5B8C\u5168\u4E00\u81F4\uFF09
+${contextText}
+
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+${String(ee.prompt)}` : String(ee.prompt);
+  const evalMessages = [{ role: "user", content: evalContent }];
   try {
     const baseUrl = String(ee.api.baseUrl).replace(/\/+$/, "");
     const res = await fetch(`${baseUrl}/chat/completions`, {

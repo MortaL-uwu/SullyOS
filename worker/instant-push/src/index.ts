@@ -97,14 +97,35 @@ async function runEmotionEval(body: any, env: Env): Promise<void> {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
 
   const charId = (body?.metadata && typeof body.metadata === 'object') ? body.metadata.charId : '';
-  // 复用主回复请求里已有的 messages (system prompt + 对话历史) 作为情绪评估的前文, 再把
-  // emotionEval.prompt (只含情绪任务 + buff 状态, 不含上下文) 作为末尾 user 消息接上. 这样客户端
-  // 不必把上下文塞进请求 (省掉一份重复), 请求体不会撑过 keepalive 64KB 上限. 没带 messages 时
-  // (旧客户端/测试) 退回只发 prompt.
+  // 复用主回复请求里已有的 messages (system prompt + 对话历史) 作为情绪评估上下文 —— 客户端不再
+  // 重复发一份, 请求体不会撑过 keepalive 64KB 上限. 但**必须摊平成文本**塞进单条 user 消息, 不能
+  // 直接把 messages 当消息数组发: 否则角色扮演 system prompt 会成为情绪评估 LLM 的 system 指令,
+  // 把它带成「扮演角色」而非「分析情绪」, 导致一直 changed:false. 摊平后语义跟本地「单条 user 消息」一致.
   const priorMessages = Array.isArray(body?.messages) ? body.messages : [];
-  const evalMessages = priorMessages.length > 0
-    ? [...priorMessages, { role: 'user', content: String(ee.prompt) }]
-    : [{ role: 'user', content: String(ee.prompt) }];
+  const contactName = body?.contactName || '角色';
+  const flattenContent = (content: any): string => {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((p: any) => (p?.type === 'text' ? (p.text || '') : (p?.type === 'image_url' ? '[图片]' : '')))
+        .filter(Boolean)
+        .join(' ');
+    }
+    return '';
+  };
+  const contextText = priorMessages
+    .map((m: any) => {
+      const role = m.role === 'system' ? '系统设定'
+        : m.role === 'user' ? '用户'
+        : m.role === 'assistant' ? contactName
+        : String(m.role || '');
+      return `[${role}]:\n${flattenContent(m.content)}`;
+    })
+    .join('\n\n');
+  const evalContent = contextText
+    ? `## 角色此刻看到的完整上下文与对话历史（与主 API 完全一致）\n${contextText}\n\n──────────\n\n${String(ee.prompt)}`
+    : String(ee.prompt);
+  const evalMessages = [{ role: 'user', content: evalContent }];
   try {
     const baseUrl = String(ee.api.baseUrl).replace(/\/+$/, '');
     const res = await fetch(`${baseUrl}/chat/completions`, {
