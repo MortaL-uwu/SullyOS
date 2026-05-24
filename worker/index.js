@@ -1346,7 +1346,15 @@ const XHSLite = (() => {
     const hashTags = [];
     for (const t of tags) { const name = String(t).replace(/^#/, ''); desc += ` #${name}[话题]#`; hashTags.push({ id: '', link: '', name, type: 'topic' }); }
     const r = await signedPost(EDITH, '/web_api/sns/v2/note', buildImageNoteData(title, desc, isPrivate ? 2 : 1, fileInfos, hashTags), cookieStr, ck);
-    return { success: !!r?.success, msg: r?.msg, note_id: r?.data?.id, raw: r };
+    const noteId = r?.data?.id || r?.data?.note_id || r?.data?.note?.id || '';
+    const ok = !!(r?.success && noteId);
+    return {
+      success: ok,
+      note_id: noteId,
+      msg: ok ? '发布成功' : `发布未确认（小红书未返回笔记ID）: ${JSON.stringify(r).slice(0, 300)}`,
+      uploaded: fileInfos.length,
+      raw: r,
+    };
   }
 
   async function handle(command, body, cookie) {
