@@ -194,13 +194,43 @@ A: 就是我也不知道什么意思。系统正在哈我。
 
 ### Instant Push 走独立 Worker
 
-Instant Push 是基于 `@rei-standard/amsg-instant 0.2.0` 的 LLM-driven Web Push 通道
+Instant Push 是基于 `@rei-standard/amsg-instant 0.8` 的 LLM-driven Web Push 通道
 （跟上面 sfworker 里的 push 加速器是两套独立链路）。每个 fork 用户自己部署一个
 Cloudflare Worker，跟仓库作者的 sully-n / 备份 Worker 完全无关。零数据库、零 cron、
 明文协议（HTTPS 已加密传输；攻击者拿到 Worker URL 也榨不出东西）。
 
 部署流程见 `worker/instant-push/README.md`，或打开 SullyOS Settings →
 Instant Push → 配置。
+
+#### Phase 2 Round 2 起：worker 端 agentic loop + reasoning + 副作用 directive
+
+Phase 2 Round 2 起 push 路径跟本地 fetch 路径**功能对齐**，不再降级：
+
+- **Agentic loop**：worker hook 看到 LLM 输出里的数据型标签（`[[RECALL/SEARCH/READ_DIARY/
+  FS_READ_DIARY/READ_NOTE/XHS_SEARCH/BROWSE/MY_PROFILE/DETAIL]]`）就走 `decision: 'tool-request'`，
+  推一条 `messageKind: tool_request` 给客户端。`utils/instantToolRunner.ts` 接到后用
+  `agenticTools.dispatchAgenticTool` 跑本地 MCP/DB/缓存，结果 OpenAI-shape POST 到
+  worker `/continue`，由它继续下一轮 LLM。一次推送最多 10 轮（`maxLoopIterations: 10`）。
+- **Reasoning chain**：worker 端 amsg-instant 0.8 在带 `reasoning_content` 的 LLM 响应上
+  自动 emit 一条独立 `ReasoningPush`。SW (sw-keep-alive 1.5.0+) 写到 `reasoning_buffer`
+  IndexedDB store，客户端处理同 sessionId 的第一条 content 时 atomic-claim，挂到
+  `Message.metadata.thinkingChain`（跟本地 fetch 路径一致的卡片渲染）。
+- **副作用 directive**：worker 端识别 `[[ACTION:POKE/TRANSFER/ADD_EVENT]]`、`[schedule_message...]`、
+  `[[MUSIC_ACTION:...]]`、`[[XHS_LIKE/FAV/COMMENT/REPLY/POST/SHARE:...]]`，**不执行**，把指令塞进
+  `ContentPush.metadata.directives`。客户端 `applyAssistantPostProcessing` 反向重建原 tag 字符串
+  喂给 `chatParser.parseAndExecuteActions` + 内联 XHS handler，**复用本地 fetch 路径的执行代码**
+  （单源真理）。当前 MUSIC_ACTION 在 push 路径仍降级（需要 musicHooks，跨 React 边界），下一版补。
+- **Memory Palace + 情绪评估**：`utils/activeMsgRuntime.ts:runPushTailPipeline` 在 push 路径
+  落库后跑跟 `useChatAI.ts:finally` 一致的尾段（`processNewMessages` + `evaluateEmotionBackground`）。
+  失败 fire-and-forget 不阻塞主链路。
+- **可选 D1 BlobStore**：agentic loop + reasoning 场景下 push payload p99 容易超 2.6 KB 安全线。
+  部署时给 worker 加 `DB` binding 即启用（见 `worker/instant-push/schema.sql` + `wrangler.toml`
+  的 `[[d1_databases]]` 注释块）；不配也能跑，小 payload 链路不受影响。
+- **离线兜底**：SW 收到 tool_request push 但当前 window 不 visible → `showNotification` 等
+  用户点开应用；启动时 `ActiveMsgRuntime.init` 排空 `pending_tool_calls` store 自动续跑
+  （iOS PWA swipe-kill 场景也兜得住）。
+
+详细决策映射 + 验证矩阵看 `~/.claude/plans/instant-push-agentic-loop-phase2.md` §四 / §六。
 
 ### ⚠️ 后端有几处接了我的 sfworker，二改请换成自己的
 

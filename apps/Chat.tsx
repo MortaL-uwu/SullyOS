@@ -20,9 +20,16 @@ import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
 import { useChatAI } from '../hooks/useChatAI';
 import { synthesizeSpeechDetailed, cleanTextForTts } from '../utils/minimaxTts';
-import { isInstantConfigReady } from '../utils/instantPushClient';
+import { isInstantConfigReady, loadInstantConfig } from '../utils/instantPushClient';
 
 const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
+type InstantToolUiStatus = {
+    charId: string;
+    phase: 'running' | 'continuing' | 'done' | 'failed';
+    text: string;
+    sessionId?: string;
+    updatedAt?: number;
+};
 
 const Chat: React.FC = () => {
     const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, clearUnread, realtimeConfig, memoryPalaceConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars } = useOS();
@@ -36,9 +43,10 @@ const Chat: React.FC = () => {
         } catch { return 0; }
     }, []);
     const [messages, setMessages] = useState<Message[]>([]);
-    // Instant Push 路径：消息写入 DB 到 POST `/instant` 真正发出之间，气泡显示半透明。
-    // worker 回 200 即从 set 移除——此后用户杀 PWA 也安全。
-    const [pendingInstantMsgIds, setPendingInstantMsgIds] = useState<Set<number>>(new Set());
+    // Instant Push 路径："准备中"三个点 = 消息正在拼接+发送; 消失 = 已 POST 发出 (keepalive,
+    // 杀 PWA 也安全) = 可安全离开. true 从触发置起, onInstantPosted (= fetch dispatch) 置回 false。
+    const [instantSendingActive, setInstantSendingActive] = useState(false);
+    const [instantToolStatus, setInstantToolStatus] = useState<InstantToolUiStatus | null>(null);
     const [totalMsgCount, setTotalMsgCount] = useState(0);
     const [visibleCount, setVisibleCount] = useState(30);
     const [windowedFocusMsgId, setWindowedFocusMsgId] = useState<number | null>(null);
@@ -534,8 +542,54 @@ const Chat: React.FC = () => {
             setShowingTargetIds(new Set());
             setWindowedFocusMsgId(null);
             setFlashMsgId(null);
+            try {
+                const rawToolStatus = localStorage.getItem(`instant_tool_status_${activeCharacterId}`);
+                const parsed = rawToolStatus ? JSON.parse(rawToolStatus) as InstantToolUiStatus : null;
+                const fresh = parsed?.updatedAt && Date.now() - parsed.updatedAt < 2 * 60_000;
+                setInstantToolStatus(fresh && parsed.phase !== 'done' ? parsed : null);
+            } catch {
+                setInstantToolStatus(null);
+            }
         }
     }, [activeCharacterId, reloadMessages]);
+
+    useEffect(() => {
+        let clearTimer: ReturnType<typeof setTimeout> | null = null;
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent<InstantToolUiStatus>).detail;
+            if (!detail?.charId || detail.charId !== activeCharIdRef.current) return;
+
+            setInstantToolStatus(detail);
+            if (clearTimer) {
+                clearTimeout(clearTimer);
+                clearTimer = null;
+            }
+            if (detail.phase === 'done' || detail.phase === 'failed') {
+                clearTimer = setTimeout(() => {
+                    setInstantToolStatus((prev) => (
+                        prev?.sessionId && detail.sessionId && prev.sessionId !== detail.sessionId ? prev : null
+                    ));
+                    clearTimer = null;
+                }, detail.phase === 'failed' ? 8000 : 5000);
+            }
+        };
+        const receivedHandler = (e: Event) => {
+            const detail = (e as CustomEvent<{ charId?: string }>).detail;
+            if (detail?.charId && detail.charId !== activeCharIdRef.current) return;
+            try {
+                const charId = detail?.charId || activeCharIdRef.current;
+                if (charId) localStorage.removeItem(`instant_tool_status_${charId}`);
+            } catch { /* ignore */ }
+            setInstantToolStatus(null);
+        };
+        window.addEventListener('instant-tool-status', handler);
+        window.addEventListener('active-msg-received', receivedHandler);
+        return () => {
+            window.removeEventListener('instant-tool-status', handler);
+            window.removeEventListener('active-msg-received', receivedHandler);
+            if (clearTimer) clearTimeout(clearTimer);
+        };
+    }, []);
 
     // Auto-generate daily schedule (fire-and-forget on chat load)
     // 总开关关闭时完全跳过：不查询 DB、不调用副 API、不跑兜底
@@ -599,16 +653,24 @@ const Chat: React.FC = () => {
     useEffect(() => {
         const handler = (e: Event) => {
             const detail = (e as CustomEvent).detail;
-            if (detail?.charId === activeCharacterId) {
-                // Reload all characters to pick up updated activeBuffs / buffInjection
-                DB.getAllCharacters().then(all => {
-                    const updated = all.find(c => c.id === activeCharacterId);
-                    if (updated) updateCharacter(updated.id, {
-                        activeBuffs: updated.activeBuffs,
-                        buffInjection: updated.buffInjection
-                    });
-                }).catch(() => {});
+            if (detail?.charId !== activeCharacterId) return;
+            // 优先用事件直接携带的 buffs/buffInjection 落 OSContext —— 不重读 DB, 避开
+            // saveCharacter 未等事务提交、以及 instant flush 下 DB 重读偶发拿旧值的竞态.
+            if (Array.isArray(detail.buffs)) {
+                updateCharacter(activeCharacterId, {
+                    activeBuffs: detail.buffs,
+                    buffInjection: typeof detail.buffInjection === 'string' ? detail.buffInjection : ''
+                });
+                return;
             }
+            // 无 buffs 的纯 UI 刷新信号 (activeMsgRuntime line-300 等): 从 DB 兜底重读.
+            DB.getAllCharacters().then(all => {
+                const updated = all.find(c => c.id === activeCharacterId);
+                if (updated) updateCharacter(updated.id, {
+                    activeBuffs: updated.activeBuffs,
+                    buffInjection: updated.buffInjection
+                });
+            }).catch(() => {});
         };
         window.addEventListener('emotion-updated', handler);
         return () => window.removeEventListener('emotion-updated', handler);
@@ -809,23 +871,26 @@ const Chat: React.FC = () => {
         // 本地模式仍维持手动触发以保留现有 UX。triggerAI 内部会从 DB 拉完整历史，
         // 闭包里的 messages 还没包含刚写入的 user msg 也没关系。
         // 仅文本消息触发；image / xhs_card 等卡片消息不触发，与本地手动行为对齐。
-        if (type === 'text' && isInstantConfigReady()) {
-            // 标记为"准备中"：从写入 DB 到 POST 真正发出之间气泡半透明，
-            // 提示用户先别杀 PWA。worker 收到（200）后回调清除。
-            setPendingInstantMsgIds(prev => {
-                const next = new Set(prev);
-                next.add(savedUserMsgId);
-                return next;
-            });
-            triggerAI(messages, undefined, () => {
-                setPendingInstantMsgIds(prev => {
-                    if (!prev.has(savedUserMsgId)) return prev;
-                    const next = new Set(prev);
-                    next.delete(savedUserMsgId);
-                    return next;
-                });
-            });
+        // autoTriggerOnSend gate：instant ready 也只在用户显式开启"发送后自动触发"时才自动回复，
+        // 否则保留手动 ⚡（避免"启用 instant = 自动回复"的反直觉强绑定）。
+        const instantCfg = loadInstantConfig();
+        if (type === 'text' && isInstantConfigReady(instantCfg) && instantCfg.autoTriggerOnSend) {
+            // 标记"准备中"三个点：拼接+发送期间显示，POST 真正发出 (onInstantPosted) 后清除，
+            // 提示用户此时可安全离开 (杀 PWA 也没事)。
+            setInstantSendingActive(true);
+            triggerAI(messages, undefined, () => setInstantSendingActive(false));
         }
+    };
+
+    // 顶栏 ⚡ 手动触发。instant 模式下给"上一条 assistant 之后的所有 user 消息"打上"准备中"
+    // 三个点（从写入 DB 到 POST 200 之间），POST 被 worker 接收后由 onInstantPosted 清除 ——
+    // 与 autoTriggerOnSend 自动路径的指示器行为一致。本地模式无此指示器，直接 triggerAI。
+    const handleManualTrigger = () => {
+        if (!isInstantConfigReady()) { triggerAI(messages); return; }
+        // instantSendingActive 驱动 header "发送中…" 徽章 (拼接+发送窗口). 消息上的三个小圆点
+        // 另走纯前端判定 (isTyping && 最后一条消息), 见渲染处.
+        setInstantSendingActive(true);
+        triggerAI(messages, undefined, () => setInstantSendingActive(false));
     };
 
     const handleReroll = async () => {
@@ -2120,12 +2185,13 @@ const Chat: React.FC = () => {
                 isTyping={isTyping}
                 isSummarizing={isSummarizing}
                 isEmotionEvaluating={emotionStatus === 'evaluating'}
+                isInstantSending={instantSendingActive}
                 isMemoryPalaceProcessing={!!memoryPalaceStatus}
                 memoryPalaceStatusText={memoryPalaceStatus}
                 lastTokenUsage={lastTokenUsage}
                 tokenBreakdown={tokenBreakdown}
                 onClose={closeApp}
-                onTriggerAI={() => triggerAI(messages)}
+                onTriggerAI={handleManualTrigger}
                 onShowCharsPanel={() => setShowPanel('chars')}
                 onDeleteBuff={(buffId) => {
                     const currentBuffs = char.activeBuffs || [];
@@ -2327,7 +2393,7 @@ const Chat: React.FC = () => {
                             bubbleVariant={osTheme.chatBubbleStyle}
                             messageSpacing={osTheme.chatMessageSpacing}
                             showTimestamp={osTheme.chatShowTimestamp}
-                            isPending={pendingInstantMsgIds.has(m.id)}
+                            isPending={false}
                             pendingIndicator={osTheme.chatPendingIndicator !== false}
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
@@ -2341,6 +2407,44 @@ const Chat: React.FC = () => {
                     );
                 })}
                 
+                {/* 纯前端「发送准备中」三个点: 不走 MessageItem (那条逐条路径实测渲染不出来), 直接挂在
+                    消息列表末尾、靠右(用户侧). 跟 header「发送中」同源 instantSendingActive 一起亮灭.
+                    原版精致观感 = 小号 (w-1) + 轻脉冲. 但原版用的 Tailwind 自定义类 animate-dot-pulse
+                    CDN 没生成 (一换就消失), 原版色 slate-400/70 又太淡看不见. 解法: 自己写 inline @keyframes
+                    (不依赖 CDN) 还原脉冲, 用实色 slate-400 (峰值满不透明) 保证看得见, 尺寸回到原版 w-1. */}
+                {instantSendingActive && !selectionMode && (
+                    <div className="flex justify-end px-3 -mt-1 -mb-4">
+                        <style>{`@keyframes chatPendingDot{0%,80%,100%{opacity:.35;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}`}</style>
+                        <span className="inline-flex items-center gap-[3px] mr-12 select-none pointer-events-none" role="status" aria-label="发送准备中">
+                            <span className="w-1 h-1 rounded-full bg-slate-400" style={{ animation: 'chatPendingDot 1.2s ease-in-out infinite' }} />
+                            <span className="w-1 h-1 rounded-full bg-slate-400" style={{ animation: 'chatPendingDot 1.2s ease-in-out infinite', animationDelay: '0.2s' }} />
+                            <span className="w-1 h-1 rounded-full bg-slate-400" style={{ animation: 'chatPendingDot 1.2s ease-in-out infinite', animationDelay: '0.4s' }} />
+                        </span>
+                    </div>
+                )}
+
+                {instantToolStatus && !selectionMode && (
+                    <div className="flex items-end gap-3 px-3 mb-4 animate-fade-in">
+                        <img src={char.avatar} className={`${osTheme.chatAvatarSize === 'small' ? 'w-7 h-7' : osTheme.chatAvatarSize === 'large' ? 'w-12 h-12' : 'w-9 h-9'} ${osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-[10px]'} object-cover`} />
+                        <div className={`max-w-[78%] px-4 py-3 rounded-2xl shadow-sm border ${
+                            instantToolStatus.phase === 'failed'
+                                ? 'bg-rose-50 border-rose-100 text-rose-700'
+                                : 'bg-white/95 border-white/70 text-slate-600'
+                        }`}>
+                            <div className="flex items-center gap-2 text-xs font-semibold leading-relaxed">
+                                {instantToolStatus.phase === 'failed' ? (
+                                    <span className="w-2 h-2 rounded-full bg-rose-400 shrink-0" />
+                                ) : instantToolStatus.phase === 'done' ? (
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                                ) : (
+                                    <svg className="animate-spin h-3 w-3 shrink-0 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                )}
+                                <span>{instantToolStatus.text}</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {(isTyping || recallStatus || searchStatus || diaryStatus || isProactiveComposing) && !selectionMode && (
                     <div className="flex items-end gap-3 px-3 mb-6 animate-fade-in">
                         <img src={char.avatar} className={`${osTheme.chatAvatarSize === 'small' ? 'w-7 h-7' : osTheme.chatAvatarSize === 'large' ? 'w-12 h-12' : 'w-9 h-9'} ${osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-[10px]'} object-cover`} />

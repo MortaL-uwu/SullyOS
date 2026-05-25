@@ -2,6 +2,7 @@
 import { DB } from './db';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { CharacterProfile, CharPlaylistSong } from '../types';
+import { sanitizeForBubble } from './sanitize';
 
 export interface MusicActionSnapshot {
     songId: number;
@@ -246,52 +247,7 @@ export const ChatParser = {
      * Pass { keepCitations: true } to preserve [QUOTE:..]/[引用:..]/[回复 ".."] tags
      * (used when downstream chunking needs to detect per-bubble citation targets).
      */
-    sanitize: (text: string, options?: { keepCitations?: boolean }): string => {
-        let result = text
-            // Convert literal \n (backslash + n) the AI sometimes outputs into real newlines
-            .replace(/\\n/g, '\n')
-            // Strip source tags [聊天]/[通话]/[约会] leaked from history context → newline to preserve splits
-            .replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, '\n')
-            // Strip leaked timestamps from chat history context:
-            // [2026-02-11 13:52] format (bracketed, from history entries)
-            .replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, '')
-            // 2026-02-11 13:52 format (unbracketed, at line start)
-            .replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, '')
-            // （下午1:52）or（上午10:30）Chinese 12h parenthetical
-            .replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, '')
-            // (1:52 PM) or (10:30 AM) English 12h parenthetical
-            .replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, '')
-            // Strip markdown headers (# ## ### etc) → keep the text
-            .replace(/^#{1,6}\s+/gm, '')
-            // Strip residual action/system tags that weren't caught earlier
-            .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, '')
-            .replace(/\[schedule_message[^\]]*\]/g, '');
-        if (!options?.keepCitations) {
-            result = result
-                .replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, '')
-                .replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, '')
-                // [回复 "content"]: format (AI mimics history context format)
-                .replace(/\[回复\s*[""\u201C][^""\u201D]*?[""\u201D](?:\.{0,3})\]\s*[：:]?\s*/g, '');
-        }
-        return result
-            // Strip backtick-wrapped action tags and empty backtick pairs
-            .replace(/`(\[\[[\s\S]*?\]\])`/g, '$1')
-            .replace(/``+/g, '')
-            .replace(/(^|\s)`(\s|$)/gm, '$1$2')
-            // Strip markdown links → keep text only: [text](url) → text
-            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-            // Strip all ** sequences (orphaned bold markers are common AI artifacts;
-            // in chat context, losing bold formatting is acceptable for clean display)
-            .replace(/\*{2,}/g, '')
-            // Strip standalone separators and bullets
-            .replace(/^\s*---\s*$/gm, '')
-            .replace(/^\s*[-*+]\s*$/gm, '')
-            // Strip legacy translation marker (but keep %%BILINGUAL%% and <翻译> XML tags)
-            .replace(/%%TRANS%%[\s\S]*/gi, '')
-            // Collapse excessive whitespace
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
-    },
+    sanitize: (text: string, options?: { keepCitations?: boolean }): string => sanitizeForBubble(text, options),
 
     /**
      * Check if text has meaningful display content after stripping all markers/junk.
@@ -355,10 +311,15 @@ export const ChatParser = {
 
         // 2. For each chunk, also split on spaces between CJK chars/punctuation
         //    (中文里不该有空格, so "汉字 汉字" means the AI intended a bubble break)
+        //    括号内的空格要保护: 否则裸括号表情包 / 标签 (如 "[你 交给我吧]" 或
+        //    "[[SEND_EMOJI: a b]]") 会被这条规则劈成 "[你" + "交给我吧]" 掉格式.
+        //    做法: 先把 [...] / [[...]] 内空格换成占位符, split 后再换回.
+        const SENTINEL = String.fromCharCode(0);
         const result: string[] = [];
         for (const chunk of lineChunks) {
-            const sub = chunk.split(cjkSpaceRe)
-                .map(c => c.trim())
+            const guarded = chunk.replace(/\[{1,2}[^\[\]]*\]{1,2}/g, m => m.replace(/\s/g, SENTINEL));
+            const sub = guarded.split(cjkSpaceRe)
+                .map(c => c.split(SENTINEL).join(' ').trim())
                 .filter(c => c.length > 0);
             result.push(...sub);
         }

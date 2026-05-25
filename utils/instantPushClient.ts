@@ -1,5 +1,6 @@
-import { InstantPushConfig, APIConfig } from '../types';
+import { InstantPushConfig, APIConfig, type InstantOversizeTransport } from '../types';
 import { loadPushVapid, isPushVapidReady } from './pushVapid';
+import { ActiveMsgStore } from './activeMsgStore';
 import {
   SUBSCRIBE_SETTLE_MS,
   bytesToB64u,
@@ -293,6 +294,30 @@ export interface InstantPushPayload {
   temperature?: number;
   messageSubtype?: string;
   metadata?: Record<string, unknown>;
+  // Phase 2 Round 1: 客户端预分配 sessionId, 写入 outbound_sessions 后传给 worker.
+  // amsg-instant 0.6.x worker 会忽略不识别的字段, 0.8+ 会用它作为 agentic-loop 会话标识.
+  // sendInstantPushAndAwaitReply 自动注入; 直接调用 sendInstantPush 的低阶路径 (e.g. 测试推送)
+  // 可省略, 此时 worker 行为退化到 v0.6 one-shot.
+  sessionId?: string;
+  // 副 API 情绪评估: 客户端把拼好的 eval prompt + 副 API 凭据塞这里, worker 包装层 (worker/instant-push)
+  // 在主回复跑完后用它跑一次 eval LLM, 把结果作为 emotion_update push 推回. 框架本身忽略此字段,
+  // 不会回显到 push, 所以 api.apiKey 不会泄露. 仅顶层传, 不放 metadata.
+  emotionEval?: {
+    prompt: string;
+    api: { baseUrl: string; apiKey: string; model: string };
+  };
+  // SullyOS Worker wrapper 读取这个字段决定本次大 payload 用 multipart 还是 D1 envelope。
+  // amsg-instant 本体会忽略未知字段, 所以旧包也能安全接收。
+  oversizeTransport?: InstantOversizeTransport;
+}
+
+export interface InstantWorkerCapabilityResult {
+  ok: boolean;
+  error?: string;
+  d1Available?: boolean;
+  d1Reason?: string;
+  multipartAvailable?: boolean;
+  raw?: unknown;
 }
 
 // ── localStorage helpers ───────────────────────────────────────────────────
@@ -334,6 +359,72 @@ export function isInstantConfigReady(cfg?: InstantPushConfig): boolean {
     c.workerUrl.startsWith('https://') &&
     isPushVapidReady()
   );
+}
+
+/** Normalize a worker URL: trim whitespace and strip trailing slashes. */
+export function normalizeWorkerUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '');
+}
+
+export function getInstantOversizeTransport(cfg?: InstantPushConfig): InstantOversizeTransport {
+  const c = cfg ?? loadInstantConfig();
+  return c.useD1BlobStore ? 'd1' : 'multipart';
+}
+
+async function resolveSafeFetchText(res: Response): Promise<{ text: string; parsed: any }> {
+  const text = await res.text().catch(() => '');
+  let parsed: any = null;
+  try { parsed = text ? JSON.parse(text) : null; } catch { /* non-json */ }
+  return { text, parsed };
+}
+
+export async function probeInstantWorkerCapabilities(
+  cfg: InstantPushConfig = loadInstantConfig(),
+): Promise<InstantWorkerCapabilityResult> {
+  const workerUrl = normalizeWorkerUrl(cfg.workerUrl || '');
+  if (!workerUrl.startsWith('https://')) {
+    return { ok: false, error: 'Worker URL 未配置或不是 https' };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (cfg.clientToken) headers['X-Client-Token'] = cfg.clientToken;
+
+  try {
+    const res = await fetch(`${workerUrl}/capabilities`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    const { text, parsed } = await resolveSafeFetchText(res);
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: parsed?.error?.message ?? `HTTP ${res.status}${res.statusText ? ' ' + res.statusText : ''}`,
+        raw: parsed ?? text,
+      };
+    }
+    if (!parsed?.success) {
+      return {
+        ok: false,
+        error: parsed?.error?.message ?? 'Worker 未返回 capabilities',
+        raw: parsed ?? text,
+      };
+    }
+
+    const data = parsed.data ?? {};
+    const d1 = data.d1 ?? data.oversizeTransport?.d1 ?? {};
+    return {
+      ok: true,
+      d1Available: !!d1.available,
+      d1Reason: typeof d1.reason === 'string' ? d1.reason : undefined,
+      multipartAvailable: data.multipart?.available !== false,
+      raw: data,
+    };
+  } catch (e) {
+    const err = e as { message?: string } | null;
+    return { ok: false, error: err?.message ?? String(e) };
+  }
 }
 
 // ── Web Push subscription helpers ─────────────────────────────────────────
@@ -410,6 +501,18 @@ export async function getOrCreateInstantSubscription(
 // 给点 margin 避免边界 case。
 const KEEPALIVE_MAX_BODY = 60 * 1024;
 
+/**
+ * 计算字符串的 UTF-8 字节长度. 浏览器 keepalive 64KiB 上限是按字节算的, 用
+ * `body.length` (UTF-16 code units) 会让中文 / emoji 这种多字节字符的实际请求
+ * 大小被低估 ~3x, 守卫放行后浏览器直接拒, fetch 抛 TypeError: Failed to fetch.
+ * 也给诊断面板的 bodyBytes / msgBytes 用同一份, 排错时显示的 KB 才跟实际一致.
+ */
+export function byteLengthOf(body: string): number {
+  // TextEncoder 在 Worker / iOS Safari 15.4+ / Chrome 38+ 全平台可用; SSR 中性,
+  // 该路径只跑在浏览器 fetch 之前.
+  return new TextEncoder().encode(body).length;
+}
+
 export interface SendInstantPushResult {
   ok: boolean;
   error?: string;
@@ -430,11 +533,19 @@ export async function sendInstantPush(
   if (!isInstantConfigReady(cfg)) {
     return { ok: false, error: '请先在 Settings → Instant Push 里配置并保存' };
   }
-  const url = `${cfg.workerUrl.replace(/\/+$/, '')}/instant`;
+  const url = `${normalizeWorkerUrl(cfg.workerUrl || '')}/instant`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (cfg.clientToken) headers['X-Client-Token'] = cfg.clientToken;
-  const body = JSON.stringify(payload);
-  const useKeepalive = !!options.keepalive && body.length <= KEEPALIVE_MAX_BODY;
+  // amsg-instant 0.8.0-next.4 起删了 splitPattern 字段, lib 不再做 split, hook
+  // 自己返 pushPayloads 数组. caller 这边不用再兜底注入。
+  // oversizeTransport 是 SullyOS Worker wrapper 字段, 用前台开关决定本次大包走 multipart / D1。
+  const wirePayload: InstantPushPayload = {
+    ...payload,
+    oversizeTransport: getInstantOversizeTransport(cfg),
+  };
+  const body = JSON.stringify(wirePayload);
+  const bodyBytes = byteLengthOf(body);
+  const useKeepalive = !!options.keepalive && bodyBytes <= KEEPALIVE_MAX_BODY;
   const maskedHosts = [
     extractHost(cfg.workerUrl),
     extractHost(payload.apiUrl),
@@ -450,9 +561,7 @@ export async function sendInstantPush(
     const res = await fetchPromise;
     // res.text() 只能调一次 —— 拿原文后再 try parse JSON, 比先 json() 后 text() 灵活,
     // 而且 CF 边缘错误页是 HTML, json() 会 throw 丢掉原文.
-    const rawText = await res.text().catch(() => '');
-    let parsed: { success?: boolean; data?: unknown; error?: { message?: string } } | null = null;
-    try { parsed = rawText ? JSON.parse(rawText) : null; } catch { /* non-JSON */ }
+    const { text: rawText, parsed } = await resolveSafeFetchText(res);
     if (!res.ok) {
       const snippet = rawText
         ? maskHostsInText(rawText.slice(0, RESPONSE_SNIPPET_LIMIT), maskedHosts)
@@ -467,13 +576,13 @@ export async function sendInstantPush(
         http: {
           status: res.status,
           statusText: res.statusText || undefined,
-          bodyBytes: body.length,
+          bodyBytes,
           keepalive: useKeepalive,
           keepaliveLimit: KEEPALIVE_MAX_BODY,
           cfRay,
           responseSnippet: snippet,
         },
-        payloadTop: collectPayloadTop(payload),
+        payloadTop: collectPayloadTop(wirePayload),
       };
     }
     if (parsed?.success) return { ok: true, data: parsed.data };
@@ -483,7 +592,7 @@ export async function sendInstantPush(
       http: {
         status: res.status,
         statusText: res.statusText || undefined,
-        bodyBytes: body.length,
+        bodyBytes,
         keepalive: useKeepalive,
         keepaliveLimit: KEEPALIVE_MAX_BODY,
         cfRay: res.headers.get('cf-ray') || undefined,
@@ -491,7 +600,7 @@ export async function sendInstantPush(
           ? maskHostsInText(rawText.slice(0, RESPONSE_SNIPPET_LIMIT), maskedHosts)
           : undefined,
       },
-      payloadTop: collectPayloadTop(payload),
+      payloadTop: collectPayloadTop(wirePayload),
     };
   } catch (e) {
     const err = e as { name?: string; message?: string } | null;
@@ -500,7 +609,7 @@ export async function sendInstantPush(
       ok: false,
       error: err?.message ?? String(e),
       fetchError: { name: err?.name, message: err?.message ?? String(e) },
-      payloadTop: collectPayloadTop(payload),
+      payloadTop: collectPayloadTop(wirePayload),
     };
   }
 }
@@ -536,8 +645,10 @@ const DEFAULT_INSTANT_TIMEOUT_MS = 90_000;
 function buildContextDiag(business: InstantBusinessPayload): InstantDiagnostics['context'] {
   let msgBytes: number | undefined;
   try {
-    if (business.messages) msgBytes = JSON.stringify(business.messages).length;
-    else if (business.completePrompt) msgBytes = business.completePrompt.length;
+    // 同 sendInstantPush 里的 bodyBytes: 用 UTF-8 真实字节, 中文每字 3 字节, 才能
+    // 跟浏览器 64KiB keepalive 上限对上号; 旧版用 .length (UTF-16 单元) 中文会被低估.
+    if (business.messages) msgBytes = byteLengthOf(JSON.stringify(business.messages));
+    else if (business.completePrompt) msgBytes = byteLengthOf(business.completePrompt);
   } catch { /* ignore */ }
   return {
     char: business.contactName || undefined,
@@ -603,13 +714,39 @@ export async function sendInstantPushAndAwaitReply(
   };
   window.addEventListener('active-msg-received', pushHandler);
 
+  // Phase 2 Round 1: 预分配 sessionId, 把 outbound session (messages + apiCredentials) 写到
+  // IndexedDB 后传给 worker. amsg-instant 0.6.x 忽略该字段, 0.8+ 用作 agentic-loop /continue
+  // 续跑标识. crypto.randomUUID 在所有目标环境 (Safari 15.4+ / Chrome 92+) 可用; SSR 中性,
+  // 该路径只在浏览器执行.
+  const sessionId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    await ActiveMsgStore.saveOutboundSession({
+      sessionId,
+      charId,
+      messages: business.messages
+        ? [...business.messages]
+        : (business.completePrompt ? [{ role: 'user' as const, content: business.completePrompt }] : []),
+      apiCredentials: {
+        baseUrl: business.apiUrl,
+        apiKey: business.apiKey,
+        model: business.primaryModel,
+      },
+      createdAt: Date.now(),
+    });
+  } catch (e) {
+    // outbound 写入失败不阻塞 push 主路径; Round 2 worker 升级前这条数据没人读
+    console.warn('[InstantPush] saveOutboundSession failed (non-fatal)', sessionId, e);
+  }
+
   const sendStartedAt = Date.now();
   try {
     // keepalive: true 让 fetch 在进程被杀后仍能完成（iOS PWA swipe-kill 关键保障）
     // onDispatched 在 fetch 同步排进网络栈后立刻 fire，UI 此时即可取消"准备中"
     // 半透明态 —— 不等 response，因为 worker 是同步阻塞跑完 LLM+push 才 200
     const sendResult = await sendInstantPush(
-      { ...business, pushSubscription: sub },
+      { ...business, pushSubscription: sub, sessionId },
       { keepalive: true, onDispatched: onPosted },
     );
     if (!sendResult.ok) {
@@ -674,9 +811,13 @@ export async function sendTestInstantPush(
   //
   // metadata.test = true 让 SW push handler 绕过"前台跳过 showNotification"
   // 逻辑 — 测试就是要看到通知, 不能被前台静默吃掉.
+  //
+  // Phase 2 Round 2 (worker 升 0.8 + onLLMOutput hook): hook 路径**不接受** completePrompt
+  // (worker 返 COMPLETE_PROMPT_NOT_SUPPORTED_ON_HOOK_PATH 400). 测试推送改用 messages 数组
+  // 包一条 user 消息, 行为跟 0.6 路径下 worker 内部自动把 completePrompt 包成 single user msg 等价.
   return sendInstantPush({
     contactName: 'Instant Push 测试',
-    completePrompt: '用一句话简短地和用户说一声 hi，确认 Instant Push 工作正常',
+    messages: [{ role: 'user', content: '用一句话简短地和用户说一声 hi，确认 Instant Push 工作正常' }],
     apiUrl: apiConfig.baseUrl,
     apiKey: apiConfig.apiKey,
     primaryModel: apiConfig.model,

@@ -298,8 +298,14 @@ export const DB = {
 
   saveCharacter: async (character: CharacterProfile): Promise<void> => {
     const db = await openDB();
-    const transaction = db.transaction(STORE_CHARACTERS, 'readwrite');
-    transaction.objectStore(STORE_CHARACTERS).put(character);
+    // 等事务真正提交再 resolve —— 否则调用方 await 后立刻重读 DB 会拿到旧值 (情绪 buff 落库竞态根因).
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_CHARACTERS, 'readwrite');
+      transaction.objectStore(STORE_CHARACTERS).put(character);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('saveCharacter aborted'));
+    });
   },
 
   deleteCharacter: async (id: string): Promise<void> => {

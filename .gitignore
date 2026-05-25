@@ -30,3 +30,6 @@ public/instant-worker.bundle.js
 
 # xiaohongshu-skills (cloned dependency)
 xiaohongshu-skills/
+
+# git worktrees
+.worktrees/
