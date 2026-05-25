@@ -220,6 +220,10 @@ async function saveContentToInbox(payload: any) {
   const charId = payload?.metadata?.charId;
   const charName = payload?.contactName || payload?.metadata?.charName || '主动消息';
   const body = String(payload?.message || payload?.body || '').trim();
+  const notificationBody = typeof payload?.notification?.body === 'string'
+    ? payload.notification.body.trim()
+    : '';
+  const previewBody = notificationBody || body;
   const messageId = String(payload?.messageId || `${charId || 'unknown'}-${Date.now()}`);
   const payloadTimestamp = payload?.timestamp;
   const parsedSentAt = payloadTimestamp ? new Date(payloadTimestamp).getTime() : NaN;
@@ -241,6 +245,7 @@ async function saveContentToInbox(payload: any) {
       charId,
       charName,
       body,
+      previewBody,
       avatarUrl: payload?.avatarUrl,
       source: payload?.source,
       messageType: payload?.messageType,
@@ -265,7 +270,7 @@ async function saveContentToInbox(payload: any) {
     type: 'active-msg-received',
     charId,
     charName,
-    body,
+    body: previewBody,
     avatarUrl: payload?.avatarUrl,
     sentAt,
   });

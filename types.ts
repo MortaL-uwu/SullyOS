@@ -221,6 +221,7 @@ export interface ActiveMsg2InboxMessage {
   charId: string;
   charName: string;
   body: string;
+  previewBody?: string;
   avatarUrl?: string;
   source?: string;
   messageType?: string;

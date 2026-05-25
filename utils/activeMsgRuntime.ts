@@ -412,7 +412,7 @@ const flushInboxToChat = async () => {
       detail: {
         charId: message.charId,
         charName: message.charName,
-        body: message.body,
+        body: message.previewBody || message.body,
         avatarUrl: message.avatarUrl,
         sentAt: messageTimestamp,
       },
