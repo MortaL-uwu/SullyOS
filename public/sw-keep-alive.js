@@ -770,7 +770,7 @@ async function removeQueuedRequest(id) {
 }
 
 // worker/sw-keep-alive.ts
-var SW_VERSION = "1.9.0";
+var SW_VERSION = "1.10.0";
 var PING_INTERVAL = 15e3;
 var MAX_MANUAL_ALIVE_MS = 5 * 6e4;
 var ACTIVE_MSG_DB_NAME = "ActiveMsg";
@@ -963,6 +963,7 @@ async function saveReasoningToBuffer(payload) {
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error || new Error("reasoning buffer write aborted"));
   });
+  await notifyClients({ type: "active-msg-reasoning", sessionId, charId });
 }
 async function clearReasoningBuffer(sessionId) {
   if (!sessionId) return;
