@@ -11,7 +11,7 @@ import { injectMemoryPalace, ingestDiaryToPalace, type DiaryIngestResult } from 
 import { getRoomLabel } from '../utils/memoryPalace/types';
 import { Sparkle, Archive } from '@phosphor-icons/react';
 
-const INTRO_SEEN_KEY = 'journal_app_intro_seen_v3';
+const INTRO_SEEN_KEY = 'journal_app_intro_seen_v4';
 
 const TWEMOJI_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72';
 const twemojiUrl = (codepoint: string) => `${TWEMOJI_BASE}/${codepoint}.png`;
@@ -747,8 +747,8 @@ ${charPart}
                 <div className="rounded-2xl bg-amber-50 border border-amber-100 px-4 py-3 space-y-2">
                     <p><span className="font-bold text-amber-700">① 自动同步聊天:</span> 角色回复了你的日记之后,会自动变成一张漂亮卡片出现在和这个角色的聊天里 —— 不用再手动发送。你之后在日记本里改文字 / 删日记,聊天里那张卡片也会跟着同步。</p>
                     <p><span className="font-bold text-amber-700">② 单向日记不进上下文:</span> 如果你只是单方面写给角色看(没让 ta 回复),这一篇就不会进入任何记忆,按以前的方式存着就好。</p>
-                    <p><span className="font-bold text-amber-700">③ 新日记没有手动归档按钮:</span> 本次更新<b>之后</b>新写的日记走的就是上面"自动同步聊天"那条线 —— 卡片落到聊天里之后, chatapp 的日度归档 / 记忆宫殿管线会跟处理其它消息一样把它顺带处理掉,不需要也<b>不应该</b>再手动归档一次,否则会重复。<b>只有本次更新之前留下的老日记</b>,列表里才还能看到那个右边的档案盒按钮,给你最后一次手动归档老记录的机会。</p>
-                    <p><span className="font-bold text-amber-700">④ 老日记归档按钮的行为:</span> <b>没开记忆宫殿的角色</b> → 主 API 用升级 prompt 出一段散文式总结写进<b>神经链接</b>;<b>开了记忆宫殿的角色</b> → 走宫殿副 API 一次抽取多条结构化记忆,节点入向量库,<b>同一组节点 bullet 化也写进神经链接</b>(跟 chatapp 自动归档一致, 两边内容严格一一对应,日期对齐到日记当天)。</p>
+                    <p><span className="font-bold text-amber-700">③ 新日记不用管归档:</span> 本次更新<b>之后</b>新写的日记走的就是上面"自动同步聊天"那条线 —— 卡片落到聊天里之后, chatapp 的日度归档 / 记忆宫殿管线会跟处理其它消息一样把它顺带处理掉, 不需要也<b>不应该</b>再手动归档一次。所以新日记你看不到归档入口, 这是故意的。</p>
+                    <p><span className="font-bold text-amber-700">④ 老日记还能手动归档:</span> 本次更新<b>之前</b>留下的老日记里, 如果是角色回复过的, <b>点进那篇日记, 右上角会有一个"归档"按钮</b>, 点一下就行 —— 没开宫殿的角色走主 API 出散文式总结写进神经链接, 开了宫殿的就走副 API 一次抽多条结构化记忆, 节点入向量库 + 同一组内容也 bullet 化写进神经链接, 跟 chatapp 自动归档一模一样。</p>
                 </div>
                 <p className="text-xs text-slate-400">这条提示只出现一次。</p>
             </div>
@@ -939,33 +939,7 @@ ${charPart}
                                         </div>
                                     </div>
                                 </div>
-                                {/* 归档按钮: 只对老日记 (autoSync 未设) 显示, 防止用户对新日记乱点重复归档.
-                                    新日记 (本次更新后写的) 走自动同步聊天那条线, 不需要也不应该手动归档. */}
-                                {!d.autoSync && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (d.isArchived || archivingId) return;
-                                            handleArchiveDiary(d);
-                                        }}
-                                        disabled={d.isArchived || archivingId === d.id}
-                                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                                            d.isArchived
-                                                ? 'text-amber-500 bg-amber-50 cursor-default'
-                                                : archivingId === d.id
-                                                    ? 'text-amber-500 bg-amber-50 cursor-wait'
-                                                    : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
-                                        }`}
-                                        title={d.isArchived ? '已归档进神经链接' : (archivingId === d.id ? '归档中...' : '归档进神经链接' + (selectedChar.memoryPalaceEnabled ? ' / 记忆宫殿' : ''))}
-                                        aria-label="归档日记"
-                                    >
-                                        {archivingId === d.id ? (
-                                            <div className="w-3.5 h-3.5 border-2 border-amber-200 border-t-amber-500 rounded-full animate-spin"></div>
-                                        ) : (
-                                            <Archive size={16} weight={d.isArchived ? 'fill' : 'regular'} />
-                                        )}
-                                    </button>
-                                )}
+                                {/* 归档按钮统一移到了"点进日记后的右上角". 列表保留删除按钮, 不重复入口. */}
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -1041,6 +1015,28 @@ ${charPart}
                             <Archive size={11} weight="fill" />
                             已归档
                         </div>
+                    )}
+                    {/* 老日记 (本次更新前留下的, autoSync 未设) 且角色已回复 → 右上角出现归档按钮.
+                        新日记走自动同步聊天那条线, 不显示这个按钮防止重复入库. */}
+                    {currentEntry && !currentEntry.autoSync && currentEntry.charPage && !currentEntry.isArchived && (
+                        <button
+                            onClick={() => handleArchiveDiary(currentEntry)}
+                            disabled={archivingId === currentEntry.id}
+                            className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all flex items-center gap-1.5 ${archivingId === currentEntry.id ? 'bg-amber-700/60 text-amber-200 cursor-wait' : 'bg-amber-500 text-white hover:bg-amber-400 active:scale-95'}`}
+                            title={'把这篇老日记归档进神经链接' + (selectedChar?.memoryPalaceEnabled ? ' / 记忆宫殿' : '')}
+                        >
+                            {archivingId === currentEntry.id ? (
+                                <>
+                                    <div className="w-3 h-3 border-2 border-amber-200/40 border-t-amber-100 rounded-full animate-spin"></div>
+                                    归档中
+                                </>
+                            ) : (
+                                <>
+                                    <Archive size={12} weight="fill" />
+                                    归档
+                                </>
+                            )}
+                        </button>
                     )}
                     <button onClick={saveEntry} className="px-4 py-1.5 bg-white/10 rounded-full text-xs font-bold hover:bg-white/20 active:scale-95 transition-transform">
                         保存
