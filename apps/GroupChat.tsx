@@ -1312,13 +1312,13 @@ ${attachedImagesNote}
                         </button>
 
                         {/* Input Field Container */}
-                        <div className="flex-1 bg-white rounded-xl flex items-end px-3 py-2 border border-slate-200 focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-100 transition-all">
+                        <div className="flex-1 min-w-0 overflow-hidden bg-white rounded-xl flex items-end px-3 py-2 border border-slate-200 focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-100 transition-all">
                             <textarea 
                                 rows={1} 
                                 value={input} 
                                 onChange={e => setInput(e.target.value)} 
                                 onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(input); }}} 
-                                className="flex-1 bg-transparent text-[16px] outline-none resize-none max-h-28 text-slate-800 placeholder:text-slate-400 py-1" 
+                                className="flex-1 min-w-0 bg-transparent text-[16px] outline-none resize-none max-h-28 text-slate-800 placeholder:text-slate-400 py-1"
                                 placeholder="Message..." 
                                 style={{ height: 'auto', minHeight: '24px' }} 
                             />
@@ -1335,7 +1335,7 @@ ${attachedImagesNote}
                         {input.trim() ? (
                             <button 
                                 onClick={() => handleSendMessage(input)} 
-                                className="h-9 px-4 bg-violet-500 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all"
+                                className="h-9 px-4 shrink-0 bg-violet-500 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all"
                             >
                                 发送
                             </button>
