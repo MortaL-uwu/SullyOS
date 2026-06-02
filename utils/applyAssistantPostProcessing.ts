@@ -1563,8 +1563,11 @@ export async function applyAssistantPostProcessing(
     aiContent = ChatParser.sanitize(aiContent, { keepCitations: true });
     aiContent = aiContent.replace(/\[\[INNER_STATE:\s*[\s\S]*?\]\]/g, '').trim();
 
-    // 空内容兜底 — recall 同样会走二轮重生, 漏了它会导致召回后本轮回复整段消失
-    if (!aiContent.trim() && (recallMatch || searchMatch || readDiaryMatch || fsReadDiaryMatch)) {
+    // 空内容兜底 — 任何二轮重生 (recall / search / read-diary / read-note / 各 XHS...) 一旦吐空 / 只剩标签,
+    // 都会让本轮回复整段消失 (前端只闪一下状态)。data !== initialData 精确表示"本轮真的跑过二轮重生"
+    // (只有重生分支会重新赋值 data, 纯副作用的 SHARE/COMMENT/LIKE/POST/写日记 不动它); 再并上原有的
+    // recall/search/readDiary/fsReadDiary tag 判断, 兼容"有标签但因未配置等原因没真正发起二轮"的旧路径。
+    if (!aiContent.trim() && (data !== initialData || recallMatch || searchMatch || readDiaryMatch || fsReadDiaryMatch)) {
         aiContent = '嗯...';
     }
 
