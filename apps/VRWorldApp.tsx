@@ -135,39 +135,48 @@ const VRWorldApp: React.FC = () => {
 
     return (
         <div className="h-full w-full flex flex-col text-white relative overflow-hidden"
-            style={{ background: 'radial-gradient(150% 110% at 50% -10%, #3a2e6e 0%, #211b46 45%, #0f0d22 100%)' }}>
+            style={{ background: 'radial-gradient(130% 90% at 50% -15%, #20283f 0%, #141a2c 38%, #0a0d18 72%, #05060d 100%)' }}>
             <VRStyleTag />
-            {/* 漂浮星点 */}
-            <div className="pointer-events-none absolute inset-0 opacity-60"
-                style={{ backgroundImage: 'radial-gradient(1.5px 1.5px at 20% 30%, rgba(255,255,255,.5), transparent), radial-gradient(1.5px 1.5px at 70% 20%, rgba(180,200,255,.5), transparent), radial-gradient(1.5px 1.5px at 85% 60%, rgba(255,220,255,.4), transparent), radial-gradient(1.5px 1.5px at 40% 75%, rgba(200,220,255,.4), transparent)' }} />
+            {/* 极光辉光 */}
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                <div className="absolute -top-1/4 -left-1/4 w-[80%] h-[60%] rounded-full"
+                    style={{ background: 'radial-gradient(circle, rgba(120,150,230,.20), transparent 70%)', filter: 'blur(44px)', animation: 'vraurora 15s ease-in-out infinite' }} />
+                <div className="absolute top-1/3 -right-1/4 w-[72%] h-[56%] rounded-full"
+                    style={{ background: 'radial-gradient(circle, rgba(130,212,200,.15), transparent 70%)', filter: 'blur(50px)', animation: 'vraurora 19s ease-in-out infinite reverse' }} />
+            </div>
+            {/* 星尘 */}
+            <div className="pointer-events-none absolute inset-0"
+                style={{ backgroundImage: 'radial-gradient(1px 1px at 18% 28%, rgba(255,255,255,.7), transparent), radial-gradient(1px 1px at 68% 18%, rgba(200,215,255,.6), transparent), radial-gradient(1px 1px at 82% 58%, rgba(230,220,255,.5), transparent), radial-gradient(1px 1px at 38% 72%, rgba(210,225,255,.5), transparent), radial-gradient(1.5px 1.5px at 52% 42%, rgba(255,255,255,.55), transparent)', animation: 'vrtwinkle 7s ease-in-out infinite' }} />
 
             {/* 顶栏 */}
-            <div className="relative flex items-center gap-2 px-4 pt-3 pb-2 shrink-0 z-10">
-                <button onClick={closeApp} className="p-1.5 -ml-1.5 rounded-full active:bg-white/10"><ArrowLeft size={22} weight="bold" /></button>
-                <div className="flex items-center gap-1.5">
-                    <Planet size={22} weight="fill" className="text-indigo-300 drop-shadow-[0_0_8px_rgba(150,150,255,0.8)]" />
-                    <span className="text-xl font-black tracking-[0.15em]"
-                        style={{ background: 'linear-gradient(90deg,#c9b8ff,#fff,#b8e0ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', filter: 'drop-shadow(0 0 6px rgba(170,160,255,.5))' }}>彼方</span>
+            <div className="relative flex items-center gap-2.5 px-5 pt-4 pb-2.5 shrink-0 z-10">
+                <button onClick={closeApp} className="p-1.5 -ml-1.5 rounded-full text-white/65 active:bg-white/10"><ArrowLeft size={21} weight="regular" /></button>
+                <div className="flex items-center gap-2">
+                    <Planet size={17} weight="light" className="text-indigo-100/90" style={{ filter: 'drop-shadow(0 0 7px rgba(165,185,255,.7))' }} />
+                    <span className="text-[22px] tracking-[0.42em] pl-1"
+                        style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 300, background: 'linear-gradient(100deg,#dcd4ff,#fff,#c2ece6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', filter: 'drop-shadow(0 0 10px rgba(185,185,255,.35))' }}>彼方</span>
                 </div>
-                <span className="ml-auto text-[11px] text-indigo-200/70 flex items-center gap-1">
-                    <Sparkle size={11} weight="fill" className="text-amber-200" />{enabledCount > 0 ? `${enabledCount} 位已接入` : '尚无接入'}
+                <span className="ml-auto text-[10.5px] tracking-[0.12em] text-white/45 font-light">
+                    {enabledCount > 0 ? `${enabledCount} 位漫游其中` : '尚无人接入'}
                 </span>
             </div>
 
-            {/* Tab */}
-            <div className="relative flex px-4 gap-1.5 shrink-0 z-10">
+            {/* Tab — 发丝下划线 */}
+            <div className="relative flex px-5 gap-6 shrink-0 z-10 pb-px">
                 {([['world', '世界'], ['library', '书库'], ['settings', '接入']] as [Tab, string][]).map(([t, label]) => (
-                    <button key={t} onClick={() => setTab(t)}
-                        className={`px-4 py-1.5 rounded-full text-[13px] font-bold transition-all ${tab === t ? 'text-white shadow-[0_4px_14px_rgba(120,100,255,0.5)]' : 'text-indigo-200/60 active:bg-white/10'}`}
-                        style={tab === t ? { background: 'linear-gradient(135deg,#8b7bf0,#b06ad6)' } : {}}>
+                    <button key={t} onClick={() => setTab(t)} className="relative pb-2 text-[13.5px] tracking-[0.22em] transition-colors"
+                        style={{ fontFamily: `'Noto Serif SC',serif`, color: tab === t ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.38)' }}>
                         {label}
+                        {tab === t && <span className="absolute -bottom-px left-1/2 -translate-x-1/2 w-5 h-px"
+                            style={{ background: 'linear-gradient(90deg,transparent,rgba(205,205,255,.95),transparent)', boxShadow: '0 0 8px rgba(185,185,255,.85)' }} />}
                     </button>
                 ))}
+                <div className="absolute bottom-0 left-5 right-5 h-px" style={{ background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent)' }} />
             </div>
 
-            <div className="relative flex-1 overflow-y-auto px-4 py-3 z-10">
+            <div className="relative flex-1 overflow-y-auto px-4 py-4 z-10">
                 {loading ? (
-                    <div className="text-center text-indigo-300/60 text-sm py-10">载入彼方…</div>
+                    <div className="text-center text-white/40 text-[13px] tracking-[0.2em] py-12" style={{ fontFamily: `'Noto Serif SC',serif` }}>载入彼方…</div>
                 ) : tab === 'world' ? (
                     <WorldView occupantsByRoom={occupantsByRoom} feed={feed} novelCount={novels.length}
                         onEnterRoom={setEnterRoom} onGoLibrary={() => setTab('library')} onJump={jumpToAnnotation} />
@@ -295,7 +304,7 @@ const Chibi: React.FC<{ char: CharacterProfile; bubble?: string; onTap?: () => v
                         className="object-contain" />
                 ) : (
                     <div className="rounded-full flex items-center justify-center font-bold text-white"
-                        style={{ width: size * 0.55, height: size * 0.55, background: 'linear-gradient(135deg,#8b7bf0,#b06ad6)', fontSize: size * 0.22 }}>
+                        style={{ width: size * 0.55, height: size * 0.55, background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))', fontSize: size * 0.22 }}>
                         {char.name.slice(0, 1)}
                     </div>
                 )}
@@ -320,15 +329,17 @@ const WorldView: React.FC<{
                 const occupants = occupantsByRoom[room.id] || [];
                 return (
                     <button key={room.id} onClick={() => room.implemented && onEnterRoom(room.id)}
-                        className={`relative rounded-2xl h-36 overflow-hidden border text-left active:scale-[0.98] transition-transform ${room.implemented ? 'border-white/20' : 'border-white/8 opacity-70'}`}
-                        style={{ boxShadow: '0 6px 20px rgba(0,0,0,.35)' }}>
+                        className={`relative rounded-2xl h-36 overflow-hidden text-left active:scale-[0.98] transition-transform ${room.implemented ? '' : 'opacity-65'}`}
+                        style={{ boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: room.implemented ? '1px solid rgba(255,255,255,.12)' : '1px solid rgba(255,255,255,.05)' }}>
                         <RoomBackground roomId={room.id} />
                         {/* 顶部渐隐 + 标题 */}
-                        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(0,0,0,.35),transparent 40%,transparent 70%,rgba(0,0,0,.55))' }} />
-                        <div className="absolute top-2 left-2.5 flex items-center gap-1">
-                            <span className="text-base drop-shadow">{room.emoji}</span>
-                            <span className="text-[12px] font-black drop-shadow">{room.name}</span>
-                            {!room.implemented && <span className="text-[7px] text-white/70 border border-white/30 rounded px-1 ml-0.5">待开放</span>}
+                        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(5,6,14,.45),transparent 38%,transparent 66%,rgba(5,6,14,.62))' }} />
+                        {/* 内描边光 */}
+                        <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,.12)' }} />
+                        <div className="absolute top-2.5 left-3 flex items-center gap-1.5">
+                            <span className="text-[15px] drop-shadow">{room.emoji}</span>
+                            <span className="text-[12.5px] tracking-[0.12em] text-white drop-shadow" style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>{room.name}</span>
+                            {!room.implemented && <span className="text-[7px] tracking-wider text-white/60 border border-white/25 rounded-full px-1.5 ml-0.5">待启</span>}
                         </div>
                         {/* 角色小头像缩影 */}
                         <div className="absolute bottom-2 left-2.5 right-2.5 flex items-end justify-between">
@@ -348,21 +359,26 @@ const WorldView: React.FC<{
         </div>
 
         {novelCount === 0 && (
-            <button onClick={onGoLibrary} className="w-full rounded-xl border border-dashed border-indigo-300/40 py-3 text-[12px] text-indigo-200/80 active:bg-white/5">
-                书库还空着，去上传一本小说，角色登入后就能在图书馆读它 →
+            <button onClick={onGoLibrary} className="w-full rounded-2xl py-3.5 text-[12px] text-white/65 tracking-wide active:bg-white/5"
+                style={{ border: '1px dashed rgba(255,255,255,.18)', background: 'rgba(255,255,255,.02)' }}>
+                书库尚空 · 上传一卷小说，角色便会在图书馆与它相遇 →
             </button>
         )}
 
         <div>
-            <div className="text-[12px] font-bold text-indigo-100/90 mb-2 flex items-center gap-1.5"><Clock size={14} weight="bold" /> 彼方动态</div>
+            <div className="flex items-center gap-2.5 mb-3 mt-1">
+                <span className="h-px flex-1" style={{ background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.14))' }} />
+                <span className="text-[10.5px] tracking-[0.3em] text-white/50" style={{ fontFamily: `'Noto Serif SC',serif` }}>彼方动态</span>
+                <span className="h-px flex-1" style={{ background: 'linear-gradient(90deg,rgba(255,255,255,.14),transparent)' }} />
+            </div>
             {feed.length === 0 ? (
-                <p className="text-[11px] text-indigo-300/50 py-4 text-center">还没有人留下痕迹。在「接入」里启用角色，它们到点会自己登入。</p>
+                <p className="text-[11px] text-white/40 py-5 text-center tracking-wide leading-relaxed">虚空尚无回响。<br />在「接入」里点亮角色，ta 们到点会独自登入这里。</p>
             ) : (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                     {feed.map(item => {
                         const room = getRoom(item.meta.room);
                         return (
-                            <div key={item.msgId} className="rounded-xl p-2.5 border border-white/10 flex gap-2.5" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                            <div key={item.msgId} className="rounded-2xl p-3 flex gap-3 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: '0 4px 18px rgba(0,0,0,.22)' }}>
                                 {item.avatar ? <img src={item.avatar} className="h-8 w-8 rounded-full object-cover shrink-0" alt="" /> : <div className="h-8 w-8 rounded-full bg-indigo-400/40 shrink-0" />}
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 text-[11px]">
@@ -499,7 +515,7 @@ const RoomScene: React.FC<{
             {/* 角色活动详情 —— 盖在 chibi 之上（zIndex 高于任何 chibi） */}
             {detail && (
                 <div className="absolute inset-0 flex items-end bg-black/45" style={{ zIndex: 200 }} onClick={() => setDetail(null)}>
-                    <div className="w-full rounded-t-2xl p-4 text-white" style={{ background: 'linear-gradient(180deg,#2a2350,#1b1838)' }} onClick={e => e.stopPropagation()}>
+                    <div className="w-full rounded-t-2xl p-4 text-white" style={{ background: 'linear-gradient(180deg,#1a2236 0%,#0d1119 100%)' }} onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-2 mb-2">
                             {detail.avatar ? <img src={detail.avatar} className="h-9 w-9 rounded-full object-cover" alt="" /> : <div className="h-9 w-9 rounded-full bg-indigo-400/40" />}
                             <span className="font-bold">{detail.name}</span>
@@ -541,7 +557,7 @@ const LibraryView: React.FC<{
 }> = ({ novels, characters, onOpen, onAdd, onDelete }) => (
     <div className="space-y-3">
         <button onClick={onAdd} className="w-full rounded-xl py-2.5 text-[13px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform shadow-[0_4px_14px_rgba(120,100,255,0.4)]"
-            style={{ background: 'linear-gradient(135deg,#8b7bf0,#b06ad6)' }}>
+            style={{ background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))' }}>
             <Plus size={16} weight="bold" /> 上传小说（支持 .txt）
         </button>
         {novels.length === 0 ? (
@@ -549,7 +565,7 @@ const LibraryView: React.FC<{
         ) : novels.map(novel => {
             const readers = characters.filter(c => getBookmark(c.vrState?.novelBookmarks, novel.id) > 0);
             return (
-                <div key={novel.id} className="rounded-xl p-3 border border-white/10" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <div key={novel.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
                     <div className="flex items-start gap-2">
                         <BookOpen size={18} weight="fill" className="text-amber-200 mt-0.5 shrink-0" />
                         <div className="flex-1 min-w-0">
@@ -874,7 +890,7 @@ const UploadModal: React.FC<{
 
     return (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={busy ? undefined : onClose}>
-            <div className="w-full max-w-md rounded-t-2xl p-4 max-h-[88vh] overflow-y-auto" style={{ background: '#1b1838' }} onClick={e => e.stopPropagation()}>
+            <div className="w-full max-w-md rounded-t-2xl p-4 max-h-[88vh] overflow-y-auto" style={{ background: 'linear-gradient(180deg,#161c2e 0%,#0c1019 100%)' }} onClick={e => e.stopPropagation()}>
                 <div className="flex items-center mb-3">
                     <span className="text-[15px] font-bold text-white">上传小说</span>
                     {!busy && <button onClick={onClose} className="ml-auto p-1 text-indigo-300/60"><X size={18} /></button>}
@@ -926,7 +942,7 @@ const UploadModal: React.FC<{
                     </div>
                 ) : (
                     <button onClick={handleSave} disabled={!canSave}
-                        className="w-full mt-3 rounded-xl py-2.5 text-[13px] font-bold text-white disabled:opacity-40" style={{ background: 'linear-gradient(135deg,#8b7bf0,#b06ad6)' }}>
+                        className="w-full mt-3 rounded-xl py-2.5 text-[13px] font-bold text-white disabled:opacity-40" style={{ background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))' }}>
                         上架到书库
                     </button>
                 )}
@@ -965,7 +981,7 @@ const ChibiEditor: React.FC<{
     if (creating) {
         return (
             <div className="fixed inset-0 z-[60] flex flex-col bg-black">
-                <div className="flex items-center gap-2 px-4 py-2 shrink-0 text-white" style={{ background: '#1b1838' }}>
+                <div className="flex items-center gap-2 px-4 py-2 shrink-0 text-white" style={{ background: 'linear-gradient(180deg,#161c2e 0%,#0c1019 100%)' }}>
                     <button onClick={() => existing?.img ? setCreating(false) : onClose()} className="p-1.5 -ml-1.5 rounded-full active:bg-white/10"><CaretLeft size={20} weight="bold" /></button>
                     <span className="text-[14px] font-bold">捏 {char.name} 的小人</span>
                 </div>
@@ -981,7 +997,7 @@ const ChibiEditor: React.FC<{
     return (
         <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/55" onClick={onClose}>
             <VRStyleTag />
-            <div className="w-full max-w-md rounded-t-2xl p-4" style={{ background: '#1b1838' }} onClick={e => e.stopPropagation()}>
+            <div className="w-full max-w-md rounded-t-2xl p-4" style={{ background: 'linear-gradient(180deg,#161c2e 0%,#0c1019 100%)' }} onClick={e => e.stopPropagation()}>
                 <div className="flex items-center mb-1">
                     <span className="text-[15px] font-bold text-white">{char.name} 的彼方形象</span>
                     <button onClick={onClose} className="ml-auto p-1 text-indigo-300/60"><X size={18} /></button>
@@ -1009,7 +1025,7 @@ const ChibiEditor: React.FC<{
                 </div>
 
                 <button onClick={() => { if (img) onSave({ img, state, scale, offsetY, flip }); }} disabled={!img}
-                    className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white disabled:opacity-40" style={{ background: 'linear-gradient(135deg,#8b7bf0,#b06ad6)' }}>
+                    className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white disabled:opacity-40" style={{ background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))' }}>
                     保存形象{char.vrState?.enabled ? '' : ' 并接入'}
                 </button>
             </div>
@@ -1050,7 +1066,7 @@ const SettingsView: React.FC<{
                 const interval = st?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
                 const chibi = getChibi(char);
                 return (
-                    <div key={char.id} className="rounded-xl p-3 border border-white/10" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                    <div key={char.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
                         <div className="flex items-center gap-2.5">
                             {/* chibi 缩略 */}
                             <button onClick={() => onEditChibi(char)} className="relative h-12 w-12 rounded-xl overflow-hidden bg-black/20 flex items-end justify-center shrink-0 active:opacity-80">
@@ -1096,6 +1112,8 @@ const VRStyleTag: React.FC = () => (
         @keyframes vrfloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
         @keyframes vrwave { from { transform: scaleY(0.5); } to { transform: scaleY(1.05); } }
         @keyframes vrdance { 0%{transform:translateY(0) rotate(-5deg)} 25%{transform:translateY(-9px) rotate(3deg)} 50%{transform:translateY(0) rotate(5deg)} 75%{transform:translateY(-9px) rotate(-3deg)} 100%{transform:translateY(0) rotate(-5deg)} }
+        @keyframes vraurora { 0%,100%{transform:translate(0,0) scale(1);opacity:.75} 50%{transform:translate(6%,4%) scale(1.14);opacity:1} }
+        @keyframes vrtwinkle { 0%,100%{opacity:.5} 50%{opacity:.85} }
     `}</style>
 );
 
