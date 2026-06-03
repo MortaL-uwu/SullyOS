@@ -539,6 +539,7 @@ const FeedCard: React.FC<{ item: FeedItem; onJump: (novelId: string | undefined,
                     <span className="ml-auto text-indigo-300/40 text-[9px]">{new Date(item.timestamp).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 <p className="text-[11.5px] text-indigo-50/90 mt-0.5 leading-snug">{item.meta.activity}</p>
+                {item.meta.behavior && <p className="text-[10.5px] text-pink-200/80 mt-1 leading-snug">{item.meta.behavior}</p>}
                 {item.meta.annotationRefs && item.meta.annotationRefs.length > 0 ? (
                     <div className="mt-1 space-y-0.5">
                         {item.meta.annotationRefs.slice(0, 3).map((ref, i) => (
