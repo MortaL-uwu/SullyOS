@@ -68,17 +68,72 @@ const SULLY_PRESET_EMOJIS = [
     { name: 'Sully等你消息', url: 'https://sharkpan.xyz/f/5nrJsj/wait.png', categoryId: SULLY_CATEGORY_ID },
 ];
 
+// 单例连接缓存。openDB 原本每次调用都新开一条 IDB 连接, 既不复用也不 close ——
+// 在记忆管线 (hybridSearch / touchAccess 等) 并发读写下会瞬间堆出几十条 AetherOS_Data
+// 连接, 撑爆 Chromium 底层 backing store; 一旦底层报错, 整个 origin 的 IndexedDB
+// (含 Service Worker 的 dedupe / inbox 库) 可能跟着开不了或被强关, Instant Push 因此确认超时。
+// 改成复用同一条连接, 并在连接被外部失效 (另一 tab 升级版本 / 浏览器强制关闭) 时
+// 清掉缓存, 下次 openDB 自动重开 —— 一处改, 全部 ~165 个调用点受益。
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 export const openDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+
+  const promise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    
+    // onblocked 不是终态: 它先 reject, 但底层 open request 还活着, 等占用方关闭后仍会
+    // 触发 onsuccess。用 settled 标记 promise 已 settle, 让那条迟到的连接被 close 掉而
+    // 不是泄漏成一条没人持有、却能 block 后续升级/删库的孤儿连接。
+    // 清缓存一律先比对 dbPromise === promise: onclose/onerror 等都是异步回调, 期间若已
+    // 重开并缓存了新 promise, 陈旧连接的回调不能误清新单例 (否则又凭空多开一条连接)。
+    let settled = false;
+
     request.onerror = () => {
         console.error("DB Open Error:", request.error);
+        if (dbPromise === promise) dbPromise = null; // 打开失败别把 rejected promise 缓存住
+        settled = true;
         reject(request.error);
     };
-    
-    request.onsuccess = () => resolve(request.result);
-    
+
+    request.onsuccess = () => {
+        const db = request.result;
+        // 已经 reject 过 (onblocked / onerror): 这条迟到的连接没人接收, 直接 close,
+        // 否则它开着会 block 后续的版本升级 / deleteDatabase。
+        if (settled) {
+            try { db.close(); } catch { /* ignore */ }
+            return;
+        }
+        // 另一个 tab 触发版本升级时必须主动 close 让位, 否则对方 open 会被 block;
+        // 顺手清缓存, 下次 openDB 重开到新版本。
+        db.onversionchange = () => {
+            db.close();
+            if (dbPromise === promise) dbPromise = null;
+        };
+        // Chromium 因 backing store 出错等原因强制关闭连接时触发 —— 清缓存自愈,
+        // 避免后续操作一直复用一条已死的连接。
+        //
+        // 已知残余 (有意不修): onclose 是异步派发的, 强关到回调跑之间, 命中这条 fast-path
+        // 的调用方会拿到将死连接, 其 db.transaction() 同步抛 InvalidStateError —— 当次操作
+        // 失败, 但下一次调用就自愈。主库这 ~165 个调用点全是记忆管线 / UI 读写, 失败是
+        // 瞬时且会自然重试的 (不丢数据), 不值得为它给每个调用点铺事务级重试 (要全覆盖得上
+        // 共享 runTx 层并迁移所有 DB.* 方法, 是独立大重构)。SW inbox 那条路径不一样: 同样
+        // 的竞态会让 push 静默丢失 → 主线程超时, 所以那边 (worker/sw-keep-alive.ts 的
+        // withInboxTx) 单独补了「InvalidStateError 清缓存重开一次」的事务级兜底。
+        db.onclose = () => {
+            if (dbPromise === promise) dbPromise = null;
+        };
+        resolve(db);
+    };
+
+    request.onblocked = () => {
+        // 另一个 tab 仍持有旧版本连接, 升级被挡。清缓存 + reject, 别让调用方无限挂着;
+        // 与 activeMsgStore / sw-keep-alive 的 openDB 一致, 对方 tab 关闭后下次调用可重试。
+        console.warn('[DB] open blocked —— 另一个 tab 仍持有旧版本连接未关闭');
+        if (dbPromise === promise) dbPromise = null;
+        settled = true;
+        reject(new Error('IndexedDB open blocked —— 关闭其它标签页后重试'));
+    };
+
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
 
@@ -273,10 +328,18 @@ export const openDB = (): Promise<IDBDatabase> => {
       }
     };
   });
+
+  dbPromise = promise;
+  return promise;
 };
 
 export const DB = {
   deleteDB: async (): Promise<void> => {
+      // 删库前先关掉单例连接, 否则这条还开着的连接会 block 掉 deleteDatabase。
+      if (dbPromise) {
+          try { (await dbPromise).close(); } catch { /* ignore */ }
+          dbPromise = null;
+      }
       return new Promise((resolve, reject) => {
           const req = indexedDB.deleteDatabase(DB_NAME);
           req.onsuccess = () => resolve();

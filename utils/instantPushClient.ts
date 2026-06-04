@@ -747,39 +747,55 @@ function resolveInstantTraceId(payload: any, fallback?: string): string {
   return String(candidate);
 }
 
+export interface SsePostResult {
+  /** SW 收下并分发了 payload (含去重命中); 超时 / 无 controller / 通道异常时为 false。 */
+  ok: boolean;
+  /**
+   * amsg-sw 2.3.0+: SW 收下并分发了, 但业务回调 (写 inbox) 抛错时带上错误信息;
+   * 此时 ok 仍为 true (ack 语义 = 已收下并分发, 非已落库)。上层据此把超时文案
+   * 从笼统的「未确认写入」升级成精确的「SW 写库失败: <原因>」。
+   */
+  businessError?: string;
+}
+
 export async function postSsePayloadToServiceWorker(
   payload: any,
   traceId?: string,
   timeoutMs = 5_000,
-): Promise<boolean> {
+): Promise<SsePostResult> {
   const resolvedTraceId = resolveInstantTraceId(payload, traceId);
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
-    return false;
+    return { ok: false };
   }
 
   const controller = navigator.serviceWorker.controller;
   if (!controller) {
-    return false;
+    return { ok: false };
   }
 
   // 把 SSE 直达 payload 交给 SW 走通用 REI_AMSG_DELIVER 路由 (inbox/tool/emotion + dedupe)。
   // 用 MessageChannel 等 SW 回 ack: ok=true 表示 SW 收下 (可能是去重命中), 超时/异常按未达处理。
-  return await new Promise<boolean>((resolve) => {
+  // amsg-sw 2.3.0+ 的 ack 在落库失败时仍 ok:true 但带 businessError, 一并透传给上层。
+  return await new Promise<SsePostResult>((resolve) => {
     const channel = new MessageChannel();
     let settled = false;
 
-    const finish = (ok: boolean) => {
+    const finish = (result: SsePostResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       try { channel.port1.close(); } catch { /* ignore */ }
-      resolve(ok);
+      resolve(result);
     };
 
-    const timer = window.setTimeout(() => finish(false), timeoutMs);
+    const timer = window.setTimeout(() => finish({ ok: false }), timeoutMs);
 
     channel.port1.onmessage = (event) => {
-      finish(!!(event.data || {}).ok);
+      const data = (event.data || {}) as { ok?: unknown; businessError?: unknown };
+      finish({
+        ok: !!data.ok,
+        businessError: typeof data.businessError === 'string' ? data.businessError : undefined,
+      });
     };
 
     try {
@@ -790,7 +806,7 @@ export async function postSsePayloadToServiceWorker(
         requestId: resolvedTraceId,
       }, [channel.port2]);
     } catch {
-      finish(false);
+      finish({ ok: false });
     }
   });
 }
@@ -919,16 +935,20 @@ export async function sendInstantPushAndAwaitReply(
       instantClientToken: cfg.clientToken || '',
     });
 
-    // postSsePayloadToServiceWorker 投递失败时 resolve(false) 而非 throw, 单看 stream
+    // postSsePayloadToServiceWorker 投递失败时返回 { ok:false } 而非 throw, 单看 stream
     // 是否跑完识别不出失败。这里记下投递结果, 供下面 stream_done 分支判定 / 诊断用。
+    // amsg-sw 2.3.0+: ack 落库失败时 ok:true 但带 businessError —— 记下来好把超时文案
+    // 从笼统的「未确认写入」升级成精确的「SW 写库失败: <原因>」。
     let sseDeliveredOk = false;
     let sseDeliveryFailed = false;
+    let sseBusinessError: string | undefined;
     const streamPromise = reiClient.consumeInstantStream(wirePayload, '/instant', {
       signal: abortController.signal,
       onPayload: async (p: any) => {
-        const delivered = await postSsePayloadToServiceWorker(p);
-        if (delivered) sseDeliveredOk = true;
+        const ack = await postSsePayloadToServiceWorker(p);
+        if (ack.ok) sseDeliveredOk = true;
         else sseDeliveryFailed = true;
+        if (ack.businessError) sseBusinessError = ack.businessError;
       },
     });
     // `consumeInstantStream()` calls fetch() synchronously before its first await,
@@ -997,17 +1017,22 @@ export async function sendInstantPushAndAwaitReply(
           },
           response: {
             outcome: 'timeout',
-            reason: sseDeliveryFailed ? 'sse-delivery-failed' : 'flush-not-confirmed',
+            reason: sseBusinessError
+              ? 'business-error'
+              : (sseDeliveryFailed ? 'sse-delivery-failed' : 'flush-not-confirmed'),
             sseDeliveredOk,
+            sseBusinessError,
             waitedMs,
           },
         });
         return {
           ok: false,
           outcome: 'timeout',
-          error: sseDeliveryFailed
-            ? 'AI 回复已生成，但本机 Service Worker 未确认收下（无 controller / 通道异常），消息可能未落库 —— 刷新页面后重试'
-            : `AI 回复已生成，但 ${Math.round(SSE_FLUSH_GRACE_MS / 1000)}s 内未确认写入本地 —— 刷新页面后重试`,
+          error: sseBusinessError
+            ? `AI 回复已生成，但本机 Service Worker 写入本地库失败（${sseBusinessError}），消息未落库 —— 刷新页面后重试`
+            : sseDeliveryFailed
+              ? 'AI 回复已生成，但本机 Service Worker 未确认收下（无 controller / 通道异常），消息可能未落库 —— 刷新页面后重试'
+              : `AI 回复已生成，但 ${Math.round(SSE_FLUSH_GRACE_MS / 1000)}s 内未确认写入本地 —— 刷新页面后重试`,
           diagnostics: {
             env, context,
             timeout: {
