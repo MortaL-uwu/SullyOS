@@ -1886,6 +1886,7 @@ export interface GameSession {
         inventory: string[];
     };
     sanityLocked?: boolean;
+    diceDisabled?: boolean;      // 关闭骰子：行动不再自动骰 D20
     suggestedActions?: GameActionOption[];
     summaries?: GameSummary[];   // 自动总结归档的前情提要
     createdAt: number;

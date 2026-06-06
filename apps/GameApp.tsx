@@ -578,6 +578,16 @@ ${playerContext}
         }
     };
 
+    // --- Dice Toggle (关闭后行动不再自动骰 D20) ---
+    const toggleDice = async () => {
+        if (!activeGame) return;
+        const newDisabled = !activeGame.diceDisabled;
+        const updated = { ...activeGame, diceDisabled: newDisabled };
+        setActiveGame(updated);
+        await DB.saveGame(updated);
+        addToast(newDisabled ? '已关闭骰子，行动不再骰点' : '已开启骰子', 'info');
+    };
+
     // --- Gameplay Logic ---
     const handleAction = async (actionText: string, isReroll: boolean = false) => {
         if (!activeGame || !apiConfig.apiKey) return;
@@ -589,8 +599,8 @@ ${playerContext}
         if (!isReroll) {
             const isSystemAction = actionText.startsWith('[System');
             // [优化] 每个玩家行动默认自动骰一颗 D20（不再需要主动点骰子）。
-            // 系统消息不骰点。
-            if (!isSystemAction && actionText.trim()) {
+            // 系统消息不骰点；用户在设置里关闭骰子时也不骰点。
+            if (!isSystemAction && actionText.trim() && !activeGame.diceDisabled) {
                 currentRoll = rollD20();
                 setLastRoll(currentRoll);
                 addToast(`D20 = ${currentRoll} · ${rollFlavor(currentRoll)}`, 'info');
@@ -1529,9 +1539,9 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                 {/* Collapsible Action Toolbar — 快捷动作 (执行时自动骰 D20) */}
                 {showTools && (
                     <div className="flex gap-2 mb-3 animate-fade-in items-center">
-                        <span className={`text-[10px] opacity-50 flex items-center gap-1 shrink-0 ${theme.accent}`}>
-                            <DiceFive size={16} weight="fill" /> 自动骰点
-                            {lastRoll !== null && <span className="font-mono font-bold">上次 {lastRoll}</span>}
+                        <span className={`text-[10px] opacity-50 flex items-center gap-1 shrink-0 ${activeGame.diceDisabled ? 'opacity-30 line-through' : theme.accent}`}>
+                            <DiceFive size={16} weight="fill" /> {activeGame.diceDisabled ? '骰子已关' : '自动骰点'}
+                            {!activeGame.diceDisabled && lastRoll !== null && <span className="font-mono font-bold no-underline">上次 {lastRoll}</span>}
                         </span>
                         {['调查', '攻击', '交涉', '潜行', '逃跑'].map(action => (
                             <button key={action} disabled={isTyping} onClick={() => handleAction(action)} className={`flex-1 px-3 py-2 rounded border ${theme.border} hover:bg-white/10 text-xs font-bold transition-colors active:scale-95 disabled:opacity-40`}>{action}</button>
@@ -1602,6 +1612,25 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                 />
                             </div>
                             <button onClick={() => setUiSettings({ fontSize: 14, color: '' })} className="w-full py-1.5 bg-white border border-slate-200 text-slate-500 text-xs rounded-lg active:scale-95 transition-transform">恢复默认</button>
+                        </div>
+                    </div>
+
+                    {/* 玩法设置 */}
+                    <div className="bg-slate-100 p-3 rounded-xl">
+                        <label className="text-xs text-slate-500 font-bold mb-3 block border-b border-slate-200 pb-1">玩法设置 (Gameplay)</label>
+                        <div className="flex items-center justify-between">
+                            <div className="flex flex-col">
+                                <span className="text-sm text-slate-700 font-medium flex items-center gap-1.5"><DiceFive size={16} weight="fill" /> 骰子判定 (D20)</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">关闭后，每次行动不再自动骰点</span>
+                            </div>
+                            <button
+                                onClick={toggleDice}
+                                role="switch"
+                                aria-checked={!activeGame.diceDisabled}
+                                className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${activeGame.diceDisabled ? 'bg-slate-300' : 'bg-emerald-500'}`}
+                            >
+                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.diceDisabled ? '' : 'translate-x-6'}`}></span>
+                            </button>
                         </div>
                     </div>
 
