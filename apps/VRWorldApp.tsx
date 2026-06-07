@@ -11,7 +11,7 @@ import { DB } from '../utils/db';
 import { VRScheduler } from '../utils/vrWorld/scheduler';
 import { VR_ROOMS, getRoom, VR_DEFAULT_INTERVAL_MIN } from '../utils/vrWorld/constants';
 import { buildNovelAsync, groupAnnotationsBySeg, getBookmark } from '../utils/vrWorld/novel';
-import { decodeTextFile } from '../utils/vrWorld/decodeText';
+import { decodeBytes } from '../utils/vrWorld/decodeText';
 import { PostOffice, MAX_LETTER_CHARS, exportIdentity, importIdentity, getAdminToken, setAdminToken, type RemoteReply, type RemoteLetterStat, type RemoteAdminLetter } from '../utils/vrWorld/postOffice';
 import { getVRApi, setVRApi, getVRApiLog, clearVRApiLog, type VRApiCall } from '../utils/vrWorld/vrApi';
 import { safeResponseJson } from '../utils/safeApi';
@@ -1995,23 +1995,34 @@ const UploadModal: React.FC<{
     const [pasteText, setPasteText] = useState('');
     const [fileInfo, setFileInfo] = useState<{ name: string; chars: number; preview: string; encoding: string } | null>(null);
     const fileContentRef = useRef<string>('');
+    // 留着原始字节，手动换编码时无需重新读盘即可重解码
+    const fileBufRef = useRef<ArrayBuffer | null>(null);
+    const [chosenEncoding, setChosenEncoding] = useState<string>('auto');
     const fileRef = useRef<HTMLInputElement>(null);
     const [reading, setReading] = useState(false);
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState(0);
 
+    // 用某个编码（auto = 自动识别）解码当前缓存的字节并刷新预览
+    const applyDecode = (name: string, buf: ArrayBuffer, enc: string) => {
+        const { text: content, encoding } = decodeBytes(buf, enc === 'auto' ? undefined : enc);
+        fileContentRef.current = content;
+        setFileInfo({
+            name,
+            chars: content.length,
+            preview: content.slice(0, 300).replace(/\s+/g, ' ').trim(),
+            encoding,
+        });
+    };
+
     const onFile = async (f: File | undefined) => {
         if (!f) return;
         setReading(true);
         try {
-            const { text: content, encoding } = await decodeTextFile(f);
-            fileContentRef.current = content;
-            setFileInfo({
-                name: f.name,
-                chars: content.length,
-                preview: content.slice(0, 300).replace(/\s+/g, ' ').trim(),
-                encoding,
-            });
+            const buf = await f.arrayBuffer();
+            fileBufRef.current = buf;
+            setChosenEncoding('auto');
+            applyDecode(f.name, buf, 'auto');
             setPasteText(''); // 文件优先，清掉粘贴框
             if (!title.trim()) setTitle(f.name.replace(/\.(txt|text)$/i, ''));
         } catch (e) {
@@ -2022,8 +2033,18 @@ const UploadModal: React.FC<{
         }
     };
 
+    // 手动换编码（乱码时用）：拿缓存字节重新解码，不必再选一遍文件
+    const redecode = (enc: string) => {
+        const buf = fileBufRef.current;
+        if (!buf || !fileInfo) return;
+        setChosenEncoding(enc);
+        applyDecode(fileInfo.name, buf, enc);
+    };
+
     const clearFile = () => {
         fileContentRef.current = '';
+        fileBufRef.current = null;
+        setChosenEncoding('auto');
         setFileInfo(null);
         if (fileRef.current) fileRef.current.value = '';
     };
@@ -2075,6 +2096,20 @@ const UploadModal: React.FC<{
                         </div>
                         <div className="text-[10px] text-indigo-300/60 mt-1">{fileInfo.chars.toLocaleString()} 字 · 预计 ~{Math.ceil(fileInfo.chars / 400).toLocaleString()} 段</div>
                         <p className="text-[10.5px] text-indigo-200/50 mt-1.5 leading-snug line-clamp-2">{fileInfo.preview}…</p>
+                        {!busy && (
+                            <div className="flex items-center gap-1.5 mt-2">
+                                <span className="text-[9.5px] text-indigo-300/55 shrink-0">乱码？换编码</span>
+                                <select value={chosenEncoding} onChange={e => redecode(e.target.value)}
+                                    className="flex-1 text-[10px] bg-[#1b2236] text-indigo-100 border border-indigo-300/25 rounded px-1.5 py-1 outline-none">
+                                    <option value="auto">自动识别</option>
+                                    <option value="utf-8">UTF-8</option>
+                                    <option value="gb18030">简体中文 · GB18030 / GBK</option>
+                                    <option value="big5">繁体中文 · Big5</option>
+                                    <option value="shift_jis">日文 · Shift_JIS</option>
+                                    <option value="euc-jp">日文 · EUC-JP</option>
+                                </select>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <button onClick={() => fileRef.current?.click()}

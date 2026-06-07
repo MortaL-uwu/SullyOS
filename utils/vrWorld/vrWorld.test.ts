@@ -152,6 +152,28 @@ describe('decodeBytes', () => {
         expect(r.encoding === 'gb18030' || r.encoding === 'utf-8?').toBe(true);
         if (r.encoding === 'gb18030') expect(r.text).toBe('你好');
     });
+
+    it('picks shift_jis for Japanese kana (not gb18030 mojibake)', () => {
+        // こんにちは in Shift_JIS
+        const bytes = new Uint8Array([0x82, 0xB1, 0x82, 0xF1, 0x82, 0xC9, 0x82, 0xBF, 0x82, 0xCD]);
+        const r = decodeBytes(bytes.buffer);
+        expect(r.encoding).not.toBe('gb18030'); // 关键：别再当成中文乱码
+        if (r.encoding === 'shift_jis') expect(r.text).toBe('こんにちは');
+    });
+
+    it('decodes EUC-JP Japanese kana correctly (no mojibake)', () => {
+        // こんにちは in EUC-JP（这串假名字节在 gb18030 里恰好同样映射，关键是结果别是乱码）
+        const bytes = new Uint8Array([0xA4, 0xB3, 0xA4, 0xF3, 0xA4, 0xCB, 0xA4, 0xC1, 0xA4, 0xCF]);
+        const r = decodeBytes(bytes.buffer);
+        expect(r.text).toBe('こんにちは');
+    });
+
+    it('honors a forced encoding override', () => {
+        const bytes = new Uint8Array([0x82, 0xB1, 0x82, 0xF1]); // こん in Shift_JIS
+        const r = decodeBytes(bytes.buffer, 'shift_jis');
+        expect(r.encoding).toBe('shift_jis');
+        expect(r.text).toBe('こん');
+    });
 });
 
 describe('chunkNovelText', () => {
