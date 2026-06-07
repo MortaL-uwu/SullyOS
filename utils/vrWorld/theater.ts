@@ -83,10 +83,14 @@ async function perRoleNotes(script: VRScript, cast: VRCastAssign[], charAssigns:
         try {
             const contextLimit = char.contextLimit || 200;
             const historyMsgs = await DB.getRecentMessagesByCharId(char.id, contextLimit);
+            const mates = cast.map(c => c.actorName).filter(n => n !== char.name);
+            // 名字权重加重：重复同台演员名 + 显式问关系/印象，便于召回角色之间的过往
+            const recallQueryHint = mates.length > 0
+                ? `彼方剧院和这些人同台演戏：${mates.join('、')}。\n${mates.join(' ')} ${mates.join(' ')}\n我对${mates.join('、')}的印象、我和 ta 们的关系与过往。`
+                : `彼方剧院排戏《${script.title}》。`;
             const payload = await buildChatRequestPayload({
                 char, userProfile: ctx.userProfile, groups: ctx.groups, emojis: ctx.emojis, categories: ctx.categories,
-                historyMsgs, contextLimit,
-                recallQueryHint: `彼方剧院排戏《${script.title}》。同台：${cast.map(c => c.actorName).filter(n => n !== char.name).join('、')}。`,
+                historyMsgs, contextLimit, recallQueryHint,
             });
             const userTurn = buildActorReviewTurn(script.title, script.logline, script.body, a.roleName, line, char.name);
             const out = await chat(api, [{ role: 'system', content: payload.systemPrompt }, ...payload.cleanedApiMessages, { role: 'user', content: userTurn }]);

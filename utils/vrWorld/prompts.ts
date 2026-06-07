@@ -7,8 +7,8 @@
  * 我们解析出 0..n 条批注 + 一句活动播报，落库并注入 vr_card。
  */
 
-import { VRWorldNovel, VRNovelAnnotation, VRMusicRoomState, CharPlaylistSong, VRGuestbookMessage, VRGardenPlant } from '../../types';
-import { VRRoomDef, GARDEN_SPECIES, getSpecies, plantStage, STAGE_LABEL } from './constants';
+import { VRWorldNovel, VRNovelAnnotation, VRMusicRoomState, CharPlaylistSong, VRGuestbookMessage } from '../../types';
+import { VRRoomDef } from './constants';
 import { ReadingWindow, groupAnnotationsBySeg } from './novel';
 
 /** 给一条已有批注生成一个稳定的短标签，供"吐槽别人的吐槽"引用。 */
@@ -91,17 +91,6 @@ function roomStanceLines(roomId: string, charName: string): string[] {
             `· 定个你想写的题材/主题，安排 2~5 个登场角色（各给一句话性格），写出有起承转合的台词；`,
             `· 题材、笔调、角色都该带着你自己的人设烙印——你会写什么样的故事，就写什么样的；`,
             `· 这是你一个人的创作时间，别把它写成跟现实里某人的对话，就当个独立作品来写。`,
-        ];
-    }
-    if (roomId === 'garden') {
-        return [
-            `这是花田，慢下来的地方。按"${charName}这个人"会怎么待在花田里来写，比如（不限于）：`,
-            `· 种下一株花，许个愿或写句寄语——为某件事、某种心情，或纯粹想看它开；`,
-            `· 给别人种的花浇浇水，帮一株快开的花再长一点，顺手说句话；`,
-            `· 蹲在花苞前发呆、把脸埋进花里闻香、给开得最好的那株拍张照；`,
-            `· 对这片花圃、对"等一朵花开"这件事，生出点只有你才会有的感想。`,
-            `种花/浇水是举手之劳的小事，别写得太用力；真实、松弛、有你自己的味道就好。`,
-            `这是你独处的安静时间——别把感想拐回现实里的某个人，就对眼前的花和泥土本身做反应。`,
         ];
     }
     if (roomId === 'music') {
@@ -530,74 +519,6 @@ export function parsePostOfficeReadOutput(raw: string): ParsedPostOfficeReadOutp
     return { reaction: f && f[1].trim() ? f[1].trim() : undefined, activity: a ? a[1].trim() : '' };
 }
 
-// ============ 共享花田 ============
-
-const gardenLabel = (p: VRGardenPlant) => `#${p.id.slice(-4)}`;
-
-export const GARDEN_OUTPUT_FORMAT = [
-    `【输出格式】`,
-    `<彼方>`,
-    `<种花 品种="N">种下这株花时你心里的一句寄语/心愿（内容可省略，但想种就保留这一行）</种花>`,
-    `<浇水 编号="#xxxx">给花圃里第 #xxxx 株浇水时你想说的一句话（内容可省略）</浇水>`,
-    `<行为>你此刻在花田里做什么，一句话：蹲着看花苞、把脸埋进花里闻香、给谁拍张花照…按你的人设</行为>`,
-    `<动态>一句第三人称活动播报，像游戏成就。例：在花田种下一株向日葵，许愿明天放晴。</动态>`,
-    `</彼方>`,
-    ``,
-    `规则：`,
-    `- <种花> 和 <浇水> 二选一、最多选一个；都不想做就两个都省略，纯赏花也行。`,
-    `- "品种"必须是下面"可种的花"里真实出现的编号 N；"编号"必须是花圃里真实出现的 #编号。`,
-    `- 花圃满了就只能浇水，别再种。<行为> 和 <动态> 必写。`,
-].join('\n');
-
-/**
- * 花田现场：在场的人 + 花圃里现有的花（带 #编号/品种/阶段/谁种的/浇过几次）+ 可种品种表。
- */
-export function buildGardenRoomTurn(
-    plants: VRGardenPlant[],
-    occupantNames: string[],
-    selfName: string,
-    full: boolean,
-): string {
-    const lines: string[] = [];
-    const others = occupantNames.filter(n => n !== selfName);
-    lines.push(others.length > 0
-        ? `你的化身踩着草地走进花田，旁边还有：${others.join('、')}，各自蹲在花丛里忙活。`
-        : `你的化身踩着草地走进花田，此刻没别人，风把花香吹过来。`);
-    lines.push('');
-
-    const recent = plants.slice(-24);
-    if (recent.length > 0) {
-        lines.push(`花圃里现在长着这些（你可以给其中一株浇水）：`);
-        for (const p of recent) {
-            const sp = getSpecies(p.species);
-            const stage = STAGE_LABEL[plantStage(p.waterCount)];
-            lines.push(`${gardenLabel(p)} ${sp.name}·${stage}（${p.planterName} 种的，浇过 ${p.waterCount} 次）${p.wish ? `——寄语：${p.wish}` : ''}`);
-        }
-    } else {
-        lines.push(`花圃还空着，泥土松软，等着第一颗种子。`);
-    }
-    lines.push('');
-
-    if (full) {
-        lines.push(`（花圃已经种满了，这次别再种新的，给现有的花浇浇水就好。）`);
-    } else {
-        lines.push(`可种的花（想种就用 <种花 品种="N">）：`);
-        GARDEN_SPECIES.forEach((s, i) => lines.push(`${i}. ${s.name} ${s.emoji}`));
-    }
-    lines.push('');
-    lines.push(GARDEN_OUTPUT_FORMAT);
-    return lines.join('\n');
-}
-
-export interface ParsedGardenOutput {
-    plantSpeciesIdx?: number;
-    wish?: string;
-    waterLabel?: string;
-    waterNote?: string;
-    behavior?: string;
-    activity: string;
-}
-
 // ============ 剧院 / 话剧部门 ============
 
 const SCRIPT_TAGS = `用下面的标签把剧本输出（标签外不要写别的）：
@@ -824,27 +745,4 @@ export function parseDirectorOutput(raw: string): ParsedDirector {
     }).filter(r => r.text);
     const rating = stripLeakedAttrs(pick('评级')) || 'B';
     return { stage, reviews, rating };
-}
-
-export function parseGardenOutput(raw: string): ParsedGardenOutput {
-    const out: ParsedGardenOutput = { activity: '' };
-    const plant = raw.match(/<种花([^>]*)>([\s\S]*?)<\/种花>/);
-    if (plant) {
-        const idxMatch = plant[1].match(/品种\s*[^\d]{0,4}(\d+)/);
-        if (idxMatch) out.plantSpeciesIdx = parseInt(idxMatch[1], 10);
-        const wish = stripLeakedAttrs(plant[2]);
-        if (wish) out.wish = wish;
-    }
-    const water = raw.match(/<浇水([^>]*)>([\s\S]*?)<\/浇水>/);
-    if (water) {
-        const labelMatch = water[1].match(/编号\s*[^0-9A-Za-z]{0,4}([0-9A-Za-z]{2,8})/);
-        if (labelMatch) out.waterLabel = labelMatch[1];
-        const note = stripLeakedAttrs(water[2]);
-        if (note) out.waterNote = note;
-    }
-    const beh = raw.match(/<行为>([\s\S]*?)<\/行为>/);
-    if (beh && beh[1].trim()) out.behavior = beh[1].trim();
-    const act = raw.match(/<动态>([\s\S]*?)<\/动态>/);
-    if (act) out.activity = act[1].trim();
-    return out;
 }
