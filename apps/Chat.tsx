@@ -1967,14 +1967,15 @@ const Chat: React.FC = () => {
               : {
                   backgroundImage: 'none',
                 };
-    // 动森彩蛋：整张聊天换成温暖奶油纸（NookPhone 同款），细点纹理。角色自带背景图时仍尊重角色设置。
+    // 动森彩蛋：默认就是动森小岛实景 —— 天空 + 太阳 + 云 + 草地，像站在岛上聊天。角色自带背景图时仍尊重角色设置。
     const acnhRootClass = 'flex flex-col h-full overflow-hidden relative font-sans transition-[background-image,background-color] duration-500';
     const acnhRootStyle: React.CSSProperties = {
-        backgroundColor: '#F8F4E8',
+        backgroundColor: '#C8E8F2',
         backgroundImage:
-            'radial-gradient(circle at 1px 1px, rgba(150,120,80,0.10) 1.5px, transparent 0),'
-            + 'radial-gradient(circle at 100% 0%, rgba(255,238,196,0.5), transparent 32%)',
-        backgroundSize: '18px 18px, 100% 100%',
+            'radial-gradient(circle at 82% 13%, rgba(255,244,180,0.9), transparent 15%),'
+            + 'radial-gradient(55% 16% at 24% 16%, rgba(255,255,255,0.9), transparent 60%),'
+            + 'radial-gradient(46% 13% at 68% 25%, rgba(255,255,255,0.72), transparent 60%),'
+            + 'linear-gradient(180deg, #C8E8F2 0%, #DCEFD7 45%, #AEDB8C 68%, #93CE6F 100%)',
     };
     const finalRootClass = acnh ? acnhRootClass : chatRootClass;
     const finalRootStyle = acnh && !char.chatBackground ? acnhRootStyle : chatRootStyle;
@@ -2018,7 +2019,38 @@ const Chat: React.FC = () => {
                     border-right: 2px solid #efb993; border-bottom: 2px solid #efb993;
                     transform: rotate(-45deg); border-bottom-right-radius: 3px;
                 }
+                @keyframes acnhLeafDrift {
+                    0% { transform: translateY(0) rotate(var(--r,0deg)); }
+                    50% { transform: translateY(14px) rotate(calc(var(--r,0deg) + 8deg)); }
+                    100% { transform: translateY(0) rotate(var(--r,0deg)); }
+                }
              `}</style>}
+
+             {/* 动森彩蛋：飘叶 + 底部草丛装饰层（z-0，在消息层 z-10 之下，不挡字） */}
+             {acnh && (
+                <div className="absolute left-0 right-0 bottom-0 pointer-events-none overflow-hidden z-0" style={{ top: '84px' }} aria-hidden>
+                    {[
+                        { left: '7%', top: '15%', size: 34, fill: '#86c45e', vein: '#5a8a30', r: '-18deg', d: '0s', dur: '7s' },
+                        { left: '84%', top: '12%', size: 28, fill: '#7cba4c', vein: '#4d7a2a', r: '24deg', d: '1.5s', dur: '8s' },
+                        { left: '12%', top: '62%', size: 24, fill: '#9ed25f', vein: '#5c8a30', r: '12deg', d: '0.8s', dur: '6.5s' },
+                        { left: '88%', top: '55%', size: 30, fill: '#86c45e', vein: '#5a8a30', r: '-30deg', d: '2.2s', dur: '7.5s' },
+                    ].map((l, i) => (
+                        <svg key={i} viewBox="0 0 100 100" className="absolute" style={{ left: l.left, top: l.top, width: l.size, height: l.size, opacity: 0.5, ['--r' as any]: l.r, animation: `acnhLeafDrift ${l.dur} ease-in-out ${l.d} infinite` }}>
+                            <path d="M50 12 C76 23 86 50 75 79 C71 89 58 93 50 89 C42 93 29 89 25 79 C14 50 24 23 50 12Z" fill={l.fill} />
+                            <path d="M50 22 V83" stroke={l.vein} strokeWidth="4" strokeLinecap="round" />
+                        </svg>
+                    ))}
+                    {/* 底部草丛（贴在输入栏上方） */}
+                    <svg viewBox="0 0 400 36" preserveAspectRatio="none" className="absolute left-0 w-full" style={{ bottom: '62px', height: 26, opacity: 0.85 }}>
+                        <path d="M0 36 C12 14 18 30 26 12 C30 26 38 18 46 34 C52 16 60 30 68 14 C74 28 82 20 92 34 L92 36Z" fill="#7cba4c" />
+                        <g fill="#86c45e">
+                            <path d="M120 36 C128 18 134 30 142 14 C148 28 156 20 164 34 L164 36Z" />
+                            <path d="M210 36 C218 16 226 30 234 13 C240 28 248 20 258 34 L258 36Z" />
+                            <path d="M300 36 C308 18 316 30 324 14 C330 28 340 20 350 34 L350 36Z" />
+                        </g>
+                    </svg>
+                </div>
+             )}
 
              {/* 记忆整理中 — 顶部浮动胶囊（不阻塞交互，轻量无 backdrop-filter） */}
              {memoryPalaceStatus && (
@@ -2390,7 +2422,7 @@ const Chat: React.FC = () => {
                 );
             })()}
 
-            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar relative z-10" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
                 {windowedFocusMsgId !== null && (
                     <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
                         <button onClick={handleBackToCurrent} className="pointer-events-auto px-4 py-2 bg-primary text-white rounded-full text-xs font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-1.5">
