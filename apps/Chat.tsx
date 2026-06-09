@@ -493,37 +493,36 @@ const Chat: React.FC = () => {
         if (!activeCharacterId) return;
 
         const charIdAtStart = activeCharacterId;
-        try {
-            const allMsgs = await DB.getMessagesByCharId(activeCharacterId, true);
-
-            // Guard against stale async results: if the user switched characters
-            // while the DB query was in flight, discard this result.
-            if (activeCharIdRef.current !== charIdAtStart) return;
-
-            // Use ref to always get the CURRENT char (avoids stale closure)
+        // 只用倒序游标取「最近 N 条」（含少量缓冲，抵消 date/call/系统消息被过滤后条数变少），
+        // 不再 getAll 全量反序列化 —— 图片多/消息多的账号原本要把整段历史（含内联图片）一次性读进
+        // 内存才显示 30 条，首次打开会卡好几秒。totalCount 走 index.count，不反序列化、极廉价。
+        const fetchLimit = requestedVisibleCount >= 100000 ? requestedVisibleCount : requestedVisibleCount + 16;
+        const applyResult = (recent: Message[], totalCount: number) => {
+            // 用 ref 取当前 char（避免闭包过期）
             const currentChar = charRef.current;
             // 不在视觉层过滤 hideBeforeMessageId —— 用户能往上滚回看，
             // 上下文截断仅作用于发给 LLM 的 prompt（在 chatPrompts.ts 里处理）。
-            const chatScopeMsgs = allMsgs
+            const chatScopeMsgs = recent
                 .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call')
                 .filter(m => !(currentChar?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card'));
-
-            setTotalMsgCount(chatScopeMsgs.length);
+            setTotalMsgCount(totalCount);
             setMessages(chatScopeMsgs.slice(-requestedVisibleCount));
+        };
+        try {
+            const { messages: recent, totalCount } = await DB.getRecentMessagesWithCount(activeCharacterId, fetchLimit);
+            // Guard against stale async results: if the user switched characters
+            // while the DB query was in flight, discard this result.
+            if (activeCharIdRef.current !== charIdAtStart) return;
+            applyResult(recent, totalCount);
         } catch (e) {
             // DB read failed — retry once after a short delay
             if (activeCharIdRef.current !== charIdAtStart) return;
             await new Promise(r => setTimeout(r, 200));
             if (activeCharIdRef.current !== charIdAtStart) return;
             try {
-                const retryMsgs = await DB.getMessagesByCharId(activeCharacterId, true);
+                const { messages: recent, totalCount } = await DB.getRecentMessagesWithCount(activeCharacterId, fetchLimit);
                 if (activeCharIdRef.current !== charIdAtStart) return;
-                const currentChar = charRef.current;
-                const chatScopeMsgs = retryMsgs
-                    .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call')
-                    .filter(m => !(currentChar?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card'));
-                setTotalMsgCount(chatScopeMsgs.length);
-                setMessages(chatScopeMsgs.slice(-requestedVisibleCount));
+                applyResult(recent, totalCount);
             } catch { /* give up silently */ }
         }
     }, [activeCharacterId]);
