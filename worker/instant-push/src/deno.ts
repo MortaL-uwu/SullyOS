@@ -67,19 +67,30 @@ function ensureKeeper(requestUrl: string): void {
   keeperInFlight = true;
   keeperChain += 1;
   fetch(new URL(KEEPER_PATH, requestUrl), { method: 'POST' })
-    .then((res) => res.text()) // 读完 body = 陪跑到对端把工作熬完
-    .then(() => {
-      keeperInFlight = false;
-      if (pendingBackgroundWork.size > 0) {
-        ensureKeeper(requestUrl); // 还有活: 续期
-      } else {
-        keeperChain = 0;
+    .then(async (res) => {
+      if (!res.ok) {
+        // Deno Deploy 边缘对自请求回 508 Loop Detected (实测) —— 被平台
+        // 识破就别再试了, 每次都会被拒, 纯烧配额。
+        keeperBroken = true;
+        console.error('[deno-entry] keepalive self-request rejected; giving up', {
+          status: res.status,
+        });
+        return;
       }
+      await res.text(); // 读完 body = 陪跑到对端把工作熬完
+      if (pendingBackgroundWork.size > 0) {
+        keeperInFlight = false;
+        ensureKeeper(requestUrl); // 还有活: 续期
+        return;
+      }
+      keeperChain = 0;
     })
     .catch((e) => {
-      keeperInFlight = false;
       keeperBroken = true;
       console.error('[deno-entry] keepalive self-request failed; giving up', e);
+    })
+    .finally(() => {
+      keeperInFlight = false;
     });
 }
 

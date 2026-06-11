@@ -3279,17 +3279,26 @@ function ensureKeeper(requestUrl) {
   if (keeperInFlight || keeperBroken || keeperChain >= KEEPER_MAX_CHAIN) return;
   keeperInFlight = true;
   keeperChain += 1;
-  fetch(new URL(KEEPER_PATH, requestUrl), { method: "POST" }).then((res) => res.text()).then(() => {
-    keeperInFlight = false;
-    if (pendingBackgroundWork.size > 0) {
-      ensureKeeper(requestUrl);
-    } else {
-      keeperChain = 0;
+  fetch(new URL(KEEPER_PATH, requestUrl), { method: "POST" }).then(async (res) => {
+    if (!res.ok) {
+      keeperBroken = true;
+      console.error("[deno-entry] keepalive self-request rejected; giving up", {
+        status: res.status
+      });
+      return;
     }
+    await res.text();
+    if (pendingBackgroundWork.size > 0) {
+      keeperInFlight = false;
+      ensureKeeper(requestUrl);
+      return;
+    }
+    keeperChain = 0;
   }).catch((e) => {
-    keeperInFlight = false;
     keeperBroken = true;
     console.error("[deno-entry] keepalive self-request failed; giving up", e);
+  }).finally(() => {
+    keeperInFlight = false;
   });
 }
 function keeperResponse() {
