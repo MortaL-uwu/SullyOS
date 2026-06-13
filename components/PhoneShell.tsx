@@ -403,10 +403,10 @@ const ImportRecoveryPopup: React.FC<{
 
 // App 懒加载占位：关键是「延迟出现」。chunk 命中缓存/快速加载只需几十毫秒，这种时长用户
 // 本就无感——但 Suspense fallback 会立刻渲染，占位一闪反而把无感瞬切变成能被看见的打断
-// （loading spinner 闪烁反模式）。所以前 ~220ms 一律渲染空（无感），只有真的慢才柔和浮现。
-// 不用三点/转圈/进度条，而是开机「世界入场」的微缩版：柔光呼吸 + 柔边光晕扩散 + 上升的微尘
-// + 明亮内核，像「这一小块世界正在凝聚」。透明底，让外壳的虚化壁纸透出来，强化「世界」感。
-// 用内联 @keyframes（CDN 版 Tailwind 不可靠生成自定义动画类）。
+// （loading spinner 闪烁反模式）。所以前 ~220ms 一律渲染空（无感），只有真的慢才浮现。
+// 刻意「零动画开销」：之前那套呼吸/涟漪/上升微尘的持续动画在 iOS 上会引起卡顿，且预热命中后
+// 这屏几乎不出现 —— 收益小、代价大。现在只一次性淡入一个静态柔光点（无 infinite 动画），
+// 透明底让外壳虚化壁纸透出来。真卡住（>7s）才换成可点的刷新/返回兜底。
 const AppLoadingFallback: React.FC<{ onReturn?: () => void }> = ({ onReturn }) => {
   const [show, setShow] = useState(false);
   const [stalled, setStalled] = useState(false);
@@ -419,13 +419,6 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void }> = ({ onReturn }) =
     const stall = setTimeout(() => setStalled(true), 7000);
     return () => { clearTimeout(t); clearTimeout(stall); };
   }, []);
-  // 几颗缓缓上升的微尘（位置/节奏随机，避免机械感）；只动 transform/opacity。
-  const motes = useMemo(() => Array.from({ length: 5 }, () => ({
-    left: 12 + Math.random() * 76,
-    size: 2 + Math.random() * 2,
-    delay: -Math.random() * 4,
-    dur: 3.4 + Math.random() * 2.2,
-  })), []);
   if (stalled) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900/95 text-white p-6 text-center space-y-4" style={{ animation: 'appLoadIn 320ms ease-out both' }}>
@@ -456,25 +449,15 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void }> = ({ onReturn }) =
     );
   }
   if (!show) return null;
+  // 静态柔光点：仅一次性淡入，之后无任何持续动画（零运行时开销），透明底透出壁纸。
   return (
-    <div className="w-full h-full flex items-center justify-center bg-transparent" style={{ animation: 'appLoadIn 320ms ease-out both' }}>
-      <style>{`
-        @keyframes appLoadIn{from{opacity:0}to{opacity:1}}
-        @keyframes appBloom{0%,100%{transform:translate(-50%,-50%) scale(.85);opacity:.45}50%{transform:translate(-50%,-50%) scale(1.08);opacity:.85}}
-        @keyframes appRipple{0%{transform:translate(-50%,-50%) scale(.5);opacity:.5}100%{transform:translate(-50%,-50%) scale(1.7);opacity:0}}
-        @keyframes appMote{0%{transform:translateY(34px);opacity:0}25%{opacity:1}75%{opacity:1}100%{transform:translateY(-46px);opacity:0}}
-      `}</style>
-      <div className="relative" style={{ width: 96, height: 132 }}>
-        {/* 核心柔光（呼吸）—— 世界的光源 */}
-        <div className="absolute" style={{ left: '50%', top: '50%', width: 130, height: 130, transform: 'translate(-50%,-50%)', borderRadius: '9999px', filter: 'blur(6px)', background: 'radial-gradient(circle, hsla(var(--primary-hue),75%,72%,0.55) 0%, hsla(var(--primary-hue),70%,60%,0.12) 45%, transparent 68%)', animation: 'appBloom 2.2s ease-in-out infinite' }} />
-        {/* 扩散光晕（柔边，非硬框） */}
-        <div className="absolute" style={{ left: '50%', top: '50%', width: 64, height: 64, transform: 'translate(-50%,-50%)', borderRadius: '9999px', filter: 'blur(2px)', background: 'radial-gradient(circle, transparent 52%, hsla(var(--primary-hue),70%,80%,0.5) 64%, transparent 80%)', animation: 'appRipple 2.6s ease-out infinite' }} />
-        {/* 上升的微尘 */}
-        {motes.map((p, i) => (
-          <span key={i} className="absolute rounded-full" style={{ left: `${p.left}%`, top: '50%', width: p.size, height: p.size, background: 'radial-gradient(circle, hsla(var(--primary-hue),85%,86%,0.95), transparent 70%)', animation: `appMote ${p.dur}s ease-in-out ${p.delay}s infinite`, willChange: 'transform' }} />
-        ))}
-        {/* 明亮内核 */}
-        <div className="absolute" style={{ left: '50%', top: '50%', width: 10, height: 10, transform: 'translate(-50%,-50%)', borderRadius: '9999px', background: 'radial-gradient(circle, #fff, hsla(var(--primary-hue),80%,75%,0.6) 60%, transparent)', boxShadow: '0 0 12px hsla(var(--primary-hue),80%,75%,0.7)', animation: 'appBloom 2.2s ease-in-out infinite' }} />
+    <div className="w-full h-full flex items-center justify-center bg-transparent" style={{ animation: 'appLoadIn 280ms ease-out both' }}>
+      <style>{`@keyframes appLoadIn{from{opacity:0}to{opacity:1}}`}</style>
+      <div className="relative" style={{ width: 72, height: 72 }}>
+        {/* 静态柔光 */}
+        <div className="absolute inset-0" style={{ borderRadius: '9999px', filter: 'blur(8px)', background: 'radial-gradient(circle, hsla(var(--primary-hue),75%,72%,0.42) 0%, hsla(var(--primary-hue),70%,60%,0.10) 50%, transparent 70%)' }} />
+        {/* 静态内核 */}
+        <div className="absolute" style={{ left: '50%', top: '50%', width: 10, height: 10, transform: 'translate(-50%,-50%)', borderRadius: '9999px', background: 'radial-gradient(circle, #fff, hsla(var(--primary-hue),80%,75%,0.6) 60%, transparent)', boxShadow: '0 0 10px hsla(var(--primary-hue),80%,75%,0.6)' }} />
       </div>
     </div>
   );
