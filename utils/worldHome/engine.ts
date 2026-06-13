@@ -24,10 +24,11 @@ import { buildChatRequestPayload } from '../chatRequestPayload';
 import { safeFetchJson } from '../safeApi';
 import { processNewMessages } from '../memoryPalace/pipeline';
 import {
-    storyTimeLabel, buildWorldSystemAddendum, buildWorldCharTurn, buildNpcTurn,
+    worldTimeLabel, buildWorldSystemAddendum, buildWorldCharTurn, buildNpcTurn,
     parseCharBeat, parseNpcScene,
 } from './prompts';
 import { ensureThreads, applyBeatToThreads, applyNpcGroupLines } from './threads';
+import { shouldCloseChapter, summarizeChapter, SIM_CHAPTER_CLOCKS } from './chapters';
 
 interface MemoryConfigLike {
     embedding?: { baseUrl?: string; apiKey?: string; model?: string; dimensions?: number };
@@ -196,8 +197,12 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
     const baseUrl = api.baseUrl.replace(/\/+$/, '');
 
     running.add(world.id);
-    const storyTime = storyTimeLabel(world.storyClock);
+    const storyTime = worldTimeLabel(world);
     const round = world.storyClock + 1;
+    // sim 模式不进记忆/聊天——演绎攒在家园里，靠每 20 天的结卷总结沉淀
+    const entersMemory = world.timeMode !== 'sim' && world.injectToChat !== false;
+    // sim 模式：已结卷归档的原文不再喂；最新一卷的单视角总结 + 氛围作为上文
+    const latestChapter = (world.chapters || [])[(world.chapters?.length || 0) - 1];
     // 线程容器就位：本轮所有消息（NPC 群聊冒泡 / 角色私聊与群聊）都即时落在 world.threads 上，
     // 链式后续角色构建上下文时直接读到——消息在同一轮内就完成传递。
     ensureThreads(world);
@@ -205,9 +210,14 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
 
     try {
         const lastEpisodes = await DB.getWorldEpisodes(world.id, 2);
-        // 给一点纵深：最近两轮的梗概都喂进去，世界才有"昨天"的概念
-        const lastSummary = lastEpisodes.length > 0
-            ? lastEpisodes.slice().reverse().map(e => e.summary).join('\n')
+        // 给一点纵深：最近两轮的梗概都喂进去，世界才有"昨天"的概念。
+        // sim 模式下，已归档（round ≤ simSummarizedClock）的原文不再喂——交给章节总结。
+        const sinceClock = world.simSummarizedClock || 0;
+        const summarySource = world.timeMode === 'sim'
+            ? lastEpisodes.filter(e => e.round > sinceClock)
+            : lastEpisodes;
+        const lastSummary = summarySource.length > 0
+            ? summarySource.slice().reverse().map(e => e.summary).join('\n')
             : undefined;
 
         // ── 1. NPC 世界引擎（一次调用全搞定；没有 NPC 就跳过） ──
@@ -220,7 +230,7 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api.apiKey || 'sk-none'}` },
                     body: JSON.stringify({
                         model: api.model,
-                        messages: [{ role: 'user', content: buildNpcTurn({ world, members, storyTime, lastSummary }) }],
+                        messages: [{ role: 'user', content: buildNpcTurn({ world, members, storyTime, lastSummary, chapterAtmosphere: latestChapter?.atmosphere }) }],
                         temperature: 0.9, stream: false,
                     }),
                 }, 2, 0, { appName: '家园', purpose: `NPC世界引擎 · ${world.name}` });
@@ -264,12 +274,20 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
                 });
                 const systemPrompt = payload.systemPrompt + buildWorldSystemAddendum(world, char, userProfile?.name || '');
                 const directive = (world.directives || []).find(d => d.charId === char.id);
+                // sim 模式：喂回这名角色自己的单视角总结 + 本卷氛围（绝不喂全知 synopsis）
+                const priorChapter = (world.timeMode === 'sim' && latestChapter)
+                    ? {
+                        atmosphere: latestChapter.atmosphere,
+                        charPerspective: latestChapter.perspectives.find(p => p.charId === char.id)?.text,
+                    }
+                    : undefined;
                 const turn = buildWorldCharTurn({
                     world, char, members, storyTime, round, lastSummary,
                     npcScene, npcHooks, beatsSoFar: beats,
                     recentPosts: collectRecentPosts(lastBeats, beats),
                     exposures: buildExposures(world, char.id, char.name),
                     directive: directive ? { impulseText: directive.impulseText, text: directive.text } : undefined,
+                    priorChapter,
                     userName: userProfile?.name || '',
                 });
                 if (directive) consumedDirectiveIds.push(directive.id);
@@ -331,8 +349,37 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
         };
         await DB.saveWorld(updatedWorld);
 
-        // ── 4. world_card 注入各成员 1v1 聊天（与彼方 vr_card 同构） ──
-        if (world.injectToChat !== false) {
+        // ── 3.5 sim 模式：攒满 20 天结一卷（小说体总结 + 各角色单视角，归档原文） ──
+        const newClock = updatedWorld.storyClock;
+        if (shouldCloseChapter(updatedWorld, newClock)) {
+            try {
+                const fromClock = newClock - SIM_CHAPTER_CLOCKS;
+                const index = newClock / SIM_CHAPTER_CLOCKS;
+                // 拉取本卷窗口内的原文（round 落在 (fromClock, newClock]）
+                const windowEpisodes = (await DB.getWorldEpisodes(world.id, SIM_CHAPTER_CLOCKS + 2))
+                    .filter(e => e.round > fromClock && e.round <= newClock);
+                dispatch('world-chapter-start', { worldId: world.id, index });
+                const chapter = await summarizeChapter({
+                    world: updatedWorld, members, episodes: windowEpisodes, api: { baseUrl, apiKey: api.apiKey || '', model: api.model },
+                    fromClock, toClock: newClock,
+                    fromLabel: worldTimeLabel(updatedWorld, fromClock),
+                    toLabel: worldTimeLabel(updatedWorld, Math.max(fromClock, newClock - 1)),
+                    index, prevSynopsis: latestChapter?.synopsis,
+                });
+                if (chapter) {
+                    updatedWorld.chapters = [...(updatedWorld.chapters || []), chapter];
+                    updatedWorld.simSummarizedClock = newClock;
+                    updatedWorld.updatedAt = Date.now();
+                    await DB.saveWorld(updatedWorld);
+                    dispatch('world-chapter-done', { worldId: world.id, index, chapterId: chapter.id });
+                }
+            } catch (e) {
+                console.warn('[WorldHome] close-chapter failed:', e);
+            }
+        }
+
+        // ── 4. world_card 注入各成员 1v1 聊天（与彼方 vr_card 同构；sim 模式不进记忆，跳过） ──
+        if (entersMemory) {
             for (const beat of beats) {
                 const meta: WorldCardMeta = {
                     worldCard: true,

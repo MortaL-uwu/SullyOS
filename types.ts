@@ -748,6 +748,24 @@ export interface VRCardMeta {
  */
 export type WorldHomeMode = 'light' | 'medium' | 'heavy';
 
+/**
+ * 时间模式（与存在感模式 WorldHomeMode 正交，创建时单独选）：
+ * - real: 真实时间——演绎进各角色的聊天与记忆（world_card），适合「真实系角色」。
+ *         真实使用里中间会穿插大量真人聊天，卡片自然稀疏，不会刷屏。
+ * - sim:  模拟时间——可自定义起始年月日，**不进记忆/聊天**；适合给 OC 们开小剧场图一乐。
+ *         每 20 天（= 40 个半天/轮）自动结一卷：生成一份小说体总结（含人物关系动态走向
+ *         与评价），归档这 20 天原文，往后只把「该角色单方面视角的总结 + ta 最后一天 +
+ *         本卷沉淀的氛围」分开喂回各角色——避免角色被迫开上帝视角。
+ */
+export type WorldTimeMode = 'real' | 'sim';
+
+/** 模拟时间的起始日期（sim 模式专用）。 */
+export interface WorldSimDate {
+    year: number;
+    month: number;
+    day: number;
+}
+
 /** 世界里的 NPC：没有记忆系统，完全服务于世界观，由"世界引擎"一次 LLM 调用全部演绎。 */
 export interface WorldNPC {
     id: string;
@@ -845,6 +863,14 @@ export interface WorldProfile {
     /** 世界观总述（这个世界是什么样的，发生在哪，大家以什么身份生活） */
     worldview: string;
     mode: WorldHomeMode;
+    /** 时间模式（创建时选定，默认 real 真实时间；旧世界无此字段时按 real 处理） */
+    timeMode?: WorldTimeMode;
+    /** sim 模式的起始日期（不设时按创建当天） */
+    simStartDate?: WorldSimDate;
+    /** sim 模式：已被卷入章节总结的剧情时钟数（round ≤ 此值的原文已归档，不再喂原文） */
+    simSummarizedClock?: number;
+    /** sim 模式：每 20 天结一卷的章节总结（按 index 升序累积；最新一卷参与下一卷的上文喂养） */
+    chapters?: WorldChapter[];
     /** 大段正文的文风（默认 warm 细腻日常） */
     narrativeStyle?: WorldNarrativeStyle;
     /** narrativeStyle='custom' 时的自定义文风提示词 */
@@ -924,6 +950,40 @@ export interface WorldEpisode {
     beats: WorldCharBeat[];
     /** 机械拼接的本轮梗概，喂给下一轮做连续性 */
     summary: string;
+    createdAt: number;
+}
+
+/**
+ * sim（模拟时间）模式下每 20 天结的一卷「章节总结」。
+ *
+ * 喂养路径（同样严格防上帝视角）：
+ *   - synopsis / relationshipEval：全知小说体梗概，**只给屏幕外的用户看**（图一乐），绝不喂角色。
+ *   - atmosphere：这一卷沉淀下来的氛围基调，可喂给所有角色（不含隐私）。
+ *   - perspectives[charId]：每个角色「单方面视角」的回顾——只含 ta 知道/经历的，
+ *     往后单独喂回对应角色，作为 ta 对这 20 天的记忆。
+ *   - lastDayBeats：每个角色这一卷最后一天的 beat，连同其单视角总结作为下一卷的上文。
+ */
+export interface WorldChapter {
+    id: string;
+    worldId: string;
+    /** 第几卷（1 起） */
+    index: number;
+    /** 覆盖的剧情时钟区间（含） */
+    fromClock: number;
+    toClock: number;
+    /** 区间起止的时间文本（sim 模式是日期） */
+    fromLabel: string;
+    toLabel: string;
+    /** 全知小说体梗概（给用户看，含人物关系动态走向与评价） */
+    synopsis: string;
+    /** 关系网这一卷的走向评价 */
+    relationshipEval?: string;
+    /** 这一卷沉淀的氛围基调（影响下一卷，喂给所有角色） */
+    atmosphere?: string;
+    /** 每个角色的单方面视角总结（分开喂回各自） */
+    perspectives: { charId: string; charName: string; text: string }[];
+    /** 每个角色这一卷最后一天的 beat（作为下一卷上文） */
+    lastDayBeats: WorldCharBeat[];
     createdAt: number;
 }
 

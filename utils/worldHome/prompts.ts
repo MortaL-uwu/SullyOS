@@ -45,6 +45,24 @@ export function storyTimeLabel(storyClock: number): string {
     return `第${Math.floor(storyClock / 2) + 1}天${storyClock % 2 === 0 ? '白天' : '夜晚'}`;
 }
 
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+/**
+ * 时间模式感知的时间标签：
+ *   - real（默认）：沿用「第N天 白天/夜晚」。
+ *   - sim：从 simStartDate 起按半天推进，输出真实日历日期「YYYY年M月D日 周X 白天/夜晚」。
+ */
+export function worldTimeLabel(world: WorldProfile, storyClock: number = world.storyClock): string {
+    if (world.timeMode === 'sim' && world.simStartDate) {
+        const { year, month, day } = world.simStartDate;
+        const d = new Date(year, month - 1, day);
+        d.setDate(d.getDate() + Math.floor(storyClock / 2));
+        const wd = WEEKDAYS[d.getDay()];
+        return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${wd} ${storyClock % 2 === 0 ? '白天' : '夜晚'}`;
+    }
+    return storyTimeLabel(storyClock);
+}
+
 /** 找出某成员住在哪（不在任何小屋 = 独居）。 */
 export function houseOf(world: WorldProfile, charId: string): WorldHouse | null {
     return world.houses.find(h => h.residentIds.includes(charId)) || null;
@@ -148,9 +166,11 @@ export function buildWorldCharTurn(args: {
     exposures?: string[];
     /** 用户对该角色冲动的决策留言 */
     directive?: { impulseText: string; text: string };
+    /** sim 模式：上一卷归档后喂回的「该角色单方面视角总结 + 本卷氛围」（防上帝视角，只给 ta 自己的视角） */
+    priorChapter?: { atmosphere?: string; charPerspective?: string };
     userName: string;
 }): string {
-    const { world, char, members, storyTime, round, lastSummary, npcScene, npcHooks, beatsSoFar, recentPosts, exposures, directive, userName } = args;
+    const { world, char, members, storyTime, round, lastSummary, npcScene, npcHooks, beatsSoFar, recentPosts, exposures, directive, priorChapter, userName } = args;
     const others = members.filter(m => m.id !== char.id);
     const npcNames = new Map(world.npcs.map(n => [n.id, n.name]));
     const myHouse = houseOf(world, char.id);
@@ -220,8 +240,10 @@ ${world.npcs.length > 0 ? `\n## 镇上的 NPC\n${world.npcs.map(n => `- ${n.name
 ## 你的关系
 ${describeRelationsFor(world, char.id, members, npcNames)}
 
-## 之前发生的事
-${lastSummary || '（这是这个世界的第一个半天，一切刚刚开始）'}
+${priorChapter && (priorChapter.charPerspective || priorChapter.atmosphere) ? `## 前情（这是你自己的视角与记忆，别人怎么想你并不知道）
+${priorChapter.charPerspective || ''}${priorChapter.atmosphere ? `\n（这段日子整体的气氛：${priorChapter.atmosphere}）` : ''}
+` : ''}## 之前发生的事
+${lastSummary || (priorChapter ? '（新的一段日子刚刚开始）' : '（这是这个世界的第一个半天，一切刚刚开始）')}
 ${npcScene ? `\n## 这半天镇上的动静（NPC）\n${npcScene}${npcHooks && npcHooks.length > 0 ? `\n可以接住的事件：${npcHooks.join('；')}` : ''}` : ''}
 
 ## 社交媒体（公开，大家都刷得到）
@@ -274,8 +296,10 @@ export function buildNpcTurn(args: {
     members: CharacterProfile[];
     storyTime: string;
     lastSummary?: string;
+    /** sim 模式：上一卷沉淀的氛围基调（不含隐私，可给世界引擎定调） */
+    chapterAtmosphere?: string;
 }): string {
-    const { world, members, storyTime, lastSummary } = args;
+    const { world, members, storyTime, lastSummary, chapterAtmosphere } = args;
     return `你是共同世界「${world.name}」的世界引擎，负责一次性扮演镇上所有 NPC。NPC 没有独立记忆，完全为世界观氛围服务。
 
 ## 世界观
@@ -289,7 +313,7 @@ ${members.map(m => m.name).join('、')}
 
 ## 之前发生的事
 ${lastSummary || '（这是这个世界的第一个半天）'}
-
+${chapterAtmosphere ? `\n## 这段日子的氛围基调\n${chapterAtmosphere}` : ''}
 剧情时间：${storyTime}。
 一次性输出这半天所有 NPC 的群像动静。严格输出一个 JSON 对象（建议用 \`\`\`json 包裹）：
 {

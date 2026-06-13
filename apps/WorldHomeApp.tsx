@@ -24,9 +24,10 @@ import { DB } from '../utils/db';
 import { getChibi } from '../utils/vrWorld/chibi';
 import { WorldScheduler, WorldTickSlot } from '../utils/worldHome/scheduler';
 import { isWorldRunning } from '../utils/worldHome/engine';
-import { storyTimeLabel, houseOf, NARRATIVE_STYLES } from '../utils/worldHome/prompts';
+import { worldTimeLabel, houseOf, NARRATIVE_STYLES } from '../utils/worldHome/prompts';
+import { SIM_CHAPTER_DAYS, SIM_CHAPTER_CLOCKS } from '../utils/worldHome/chapters';
 import { dmThreadsOf, groupThreadOf } from '../utils/worldHome/threads';
-import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldHouse, WorldThread, WorldNarrativeStyle, CharacterProfile, WorldCharBeat } from '../types';
+import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldTimeMode, WorldHouse, WorldThread, WorldNarrativeStyle, CharacterProfile, WorldCharBeat } from '../types';
 
 const genId = (p: string) => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -34,6 +35,21 @@ const MODE_INFO: Record<WorldHomeMode, { name: string; short: string; desc: stri
     light: { name: '轻度 · 以你为主', short: '以你为主', desc: '只是观察角色生活的一个切面。世界里 ta 依旧以你为最重要的人——和聊天里完全一致。', badge: 'bg-sky-400/90 text-sky-950' },
     medium: { name: '中度 · 你是一份子', short: '你是一份子', desc: '你是这个世界的普通一员，存在但不特殊，角色不围着你转。', badge: 'bg-amber-400/90 text-amber-950' },
     heavy: { name: '重度 · 无你世界', short: '无你世界', desc: '你不存在（或只是透明的幽灵）。角色之间自行生活，演绎中完全无视你。', badge: 'bg-rose-400/90 text-rose-950' },
+};
+
+const TIME_MODE_INFO: Record<WorldTimeMode, { name: string; short: string; desc: string; hint: string; badge: string }> = {
+    real: {
+        name: '真实时间', short: '真实时间',
+        desc: '演绎写回各角色的聊天与记忆，和你平时的聊天连成一体。',
+        hint: '适合「真实系角色」——你平时会真人聊天，中间穿插，卡片自然不会刷屏。',
+        badge: 'bg-emerald-400/90 text-emerald-950',
+    },
+    sim: {
+        name: '模拟时间', short: '模拟时间',
+        desc: '自定义起始日期，演绎不进记忆、留在家园里。每 20 天自动结一卷小说体总结并归档原文。',
+        hint: '适合给 OC 们开小剧场图一乐——攒一段时间回来读一卷「这些天发生了什么」。',
+        badge: 'bg-violet-400/90 text-violet-950',
+    },
 };
 
 const TICK_SLOT_INFO: { id: WorldTickSlot; label: string }[] = [
@@ -190,7 +206,7 @@ const PhoneModal: React.FC<{
                         <div className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-[18px] rounded-full bg-black z-20" />
                         {/* 状态栏 */}
                         <div className="pt-2.5 pb-1 px-5 flex items-center justify-between text-[9px] text-white/80 font-semibold shrink-0">
-                            <span>{storyTimeLabel(world.storyClock)}</span>
+                            <span>{worldTimeLabel(world)}</span>
                             <span className="flex items-center gap-1"><CellSignalFull size={10} weight="fill" /><WifiHigh size={10} weight="bold" /><BatteryFull size={12} weight="fill" /></span>
                         </div>
                         {/* 机主栏 */}
@@ -368,6 +384,53 @@ const WorldEditor: React.FC<{
             </div>
 
             <div className={sectionCls}>
+                <div className={labelCls}>时间模式（世界开始后不可改，先想清楚）{w.storyClock > 0 && <span className="text-stone-400 normal-case tracking-normal font-medium">　· 已开始，锁定</span>}</div>
+                {(Object.keys(TIME_MODE_INFO) as WorldTimeMode[]).map(tm => {
+                    const on = (w.timeMode || 'real') === tm;
+                    const locked = w.storyClock > 0;
+                    return (
+                        <button key={tm} disabled={locked && !on} onClick={() => {
+                            if (locked) return;
+                            if (tm === 'sim' && !w.simStartDate) {
+                                const now = new Date();
+                                upd({ timeMode: tm, simStartDate: { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() } });
+                            } else {
+                                upd({ timeMode: tm });
+                            }
+                        }}
+                            className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition-all disabled:opacity-40 ${on ? 'bg-stone-900 border-stone-900 text-white shadow-lg' : 'bg-white border-stone-200 text-stone-700'}`}>
+                            <div className="text-[12px] font-bold flex items-center gap-2">
+                                {TIME_MODE_INFO[tm].name}
+                                {on && <span className={`text-[8.5px] px-1.5 py-0.5 rounded-full font-black ${TIME_MODE_INFO[tm].badge}`}>已选</span>}
+                            </div>
+                            <div className={`text-[10.5px] mt-0.5 leading-snug ${on ? 'text-white/70' : 'text-stone-500'}`}>{TIME_MODE_INFO[tm].desc}</div>
+                            <div className={`text-[10px] mt-1 leading-snug ${on ? 'text-amber-200/90' : 'text-amber-700/80'}`}>💡 {TIME_MODE_INFO[tm].hint}</div>
+                        </button>
+                    );
+                })}
+                {(w.timeMode || 'real') === 'sim' && (
+                    <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-2.5 space-y-2">
+                        <div className="text-[10.5px] font-bold text-violet-700">起始日期（模拟时间从这天开始走）</div>
+                        <div className="flex items-center gap-1.5">
+                            <input type="number" min={1} className="w-[72px] px-2 py-1 rounded-lg bg-white border border-violet-200 text-[12px] text-center"
+                                value={w.simStartDate?.year ?? new Date().getFullYear()}
+                                onChange={e => upd({ simStartDate: { year: parseInt(e.target.value, 10) || 1, month: w.simStartDate?.month ?? 1, day: w.simStartDate?.day ?? 1 } })} />
+                            <span className="text-[12px] text-violet-600">年</span>
+                            <input type="number" min={1} max={12} className="w-[52px] px-2 py-1 rounded-lg bg-white border border-violet-200 text-[12px] text-center"
+                                value={w.simStartDate?.month ?? 1}
+                                onChange={e => upd({ simStartDate: { year: w.simStartDate?.year ?? new Date().getFullYear(), month: Math.min(12, Math.max(1, parseInt(e.target.value, 10) || 1)), day: w.simStartDate?.day ?? 1 } })} />
+                            <span className="text-[12px] text-violet-600">月</span>
+                            <input type="number" min={1} max={31} className="w-[52px] px-2 py-1 rounded-lg bg-white border border-violet-200 text-[12px] text-center"
+                                value={w.simStartDate?.day ?? 1}
+                                onChange={e => upd({ simStartDate: { year: w.simStartDate?.year ?? new Date().getFullYear(), month: w.simStartDate?.month ?? 1, day: Math.min(31, Math.max(1, parseInt(e.target.value, 10) || 1)) } })} />
+                            <span className="text-[12px] text-violet-600">日</span>
+                        </div>
+                        <div className="text-[9.5px] text-violet-500 leading-snug">每 {SIM_CHAPTER_DAYS} 天（{SIM_CHAPTER_CLOCKS} 次观测/tick）自动结一卷：生成小说体总结 + 每个角色单方面视角，归档原文。不写入聊天与记忆。</div>
+                    </div>
+                )}
+            </div>
+
+            <div className={sectionCls}>
                 <div className={labelCls}>模式（你在这个世界里的存在感）</div>
                 {(Object.keys(MODE_INFO) as WorldHomeMode[]).map(m => (
                     <button key={m} onClick={() => upd({ mode: m })}
@@ -503,10 +566,14 @@ const WorldEditor: React.FC<{
                         );
                     })}
                 </div>
-                <label className="flex items-center justify-between pt-1">
-                    <span className="text-[12px] text-stone-700">生成内容注入聊天（world_card，进上下文与记忆）</span>
-                    <input type="checkbox" checked={w.injectToChat !== false} onChange={e => upd({ injectToChat: e.target.checked })} className="w-4 h-4 accent-amber-500" />
-                </label>
+                {(w.timeMode || 'real') === 'real' ? (
+                    <label className="flex items-center justify-between pt-1">
+                        <span className="text-[12px] text-stone-700">生成内容注入聊天（world_card，进上下文与记忆）</span>
+                        <input type="checkbox" checked={w.injectToChat !== false} onChange={e => upd({ injectToChat: e.target.checked })} className="w-4 h-4 accent-amber-500" />
+                    </label>
+                ) : (
+                    <div className="text-[11px] text-violet-600 bg-violet-50/60 rounded-lg px-2.5 py-1.5 leading-snug">模拟时间：演绎不写入聊天与记忆，只在家园里以章节总结沉淀。</div>
+                )}
             </div>
 
             <div className={sectionCls}>
@@ -609,12 +676,19 @@ const WorldView: React.FC<{
     );
     const [openHouseId, setOpenHouseId] = useState<string | null>(null);
     const [openEpisodeId, setOpenEpisodeId] = useState<string | null>(null);
+    const [openChapterId, setOpenChapterId] = useState<string | null>(null);
     const [phoneView, setPhoneView] = useState<{ ownerId: string; tab?: 'feed' | 'dm' | 'group' } | null>(null);
 
     const members = useMemo(() => world.memberIds.map(id => characters.find(c => c.id === id)).filter(Boolean) as CharacterProfile[], [world.memberIds, characters]);
     const latest = episodes[0];
     // 氛围跟随"即将到来的半天"：偶数=白天，奇数=夜晚
     const isNight = world.storyClock % 2 === 1;
+
+    // sim（模拟时间）：章节进度 + 已结的卷
+    const isSim = world.timeMode === 'sim';
+    const chapters = useMemo(() => (world.chapters || []).slice().sort((a, b) => b.index - a.index), [world.chapters]);
+    const daysIntoChapter = Math.floor((world.storyClock - (world.simSummarizedClock || 0)) / 2);
+    const daysToNextChapter = Math.max(0, SIM_CHAPTER_DAYS - daysIntoChapter);
 
     const loadEpisodes = useCallback(async () => {
         setEpisodes(await DB.getWorldEpisodes(world.id, 30));
@@ -627,17 +701,23 @@ const WorldView: React.FC<{
         const onBeat = (e: any) => { if (e.detail?.worldId === world.id) setProgress({ done: e.detail.done || 0, total: e.detail.total || members.length, charName: e.detail.charName }); };
         const onDone = (e: any) => { if (e.detail?.worldId === world.id) { loadEpisodes(); onWorldUpdated(); } };
         const onEnd = (e: any) => { if (e.detail?.worldId === world.id) setProgress(null); };
+        const onChapterStart = (e: any) => { if (e.detail?.worldId === world.id) addToast(`满 ${SIM_CHAPTER_DAYS} 天了，正在结第 ${e.detail.index} 卷…`, 'success'); };
+        const onChapterDone = (e: any) => { if (e.detail?.worldId === world.id) { addToast(`第 ${e.detail.index} 卷总结好了，去翻翻这些天的故事`, 'success'); onWorldUpdated(); } };
         window.addEventListener('world-episode-start', onStart);
         window.addEventListener('world-beat-done', onBeat);
         window.addEventListener('world-episode-done', onDone);
         window.addEventListener('world-episode-end', onEnd);
+        window.addEventListener('world-chapter-start', onChapterStart);
+        window.addEventListener('world-chapter-done', onChapterDone);
         return () => {
             window.removeEventListener('world-episode-start', onStart);
             window.removeEventListener('world-beat-done', onBeat);
             window.removeEventListener('world-episode-done', onDone);
             window.removeEventListener('world-episode-end', onEnd);
+            window.removeEventListener('world-chapter-start', onChapterStart);
+            window.removeEventListener('world-chapter-done', onChapterDone);
         };
-    }, [world.id, members.length, loadEpisodes, onWorldUpdated]);
+    }, [world.id, members.length, loadEpisodes, onWorldUpdated, addToast]);
 
     const observe = () => {
         if (isWorldRunning(world.id)) { addToast('这一轮还在演绎中', 'error'); return; }
@@ -731,6 +811,7 @@ const WorldView: React.FC<{
                 <div className="relative px-4 pt-4 pb-4">
                     <div className="flex items-center gap-1.5">
                         <span className={`text-[8.5px] font-black px-2 py-0.5 rounded-full tracking-wider ${MODE_INFO[world.mode].badge}`}>{MODE_INFO[world.mode].short}</span>
+                        <span className={`text-[8.5px] font-black px-2 py-0.5 rounded-full tracking-wider ${TIME_MODE_INFO[world.timeMode || 'real'].badge}`}>{TIME_MODE_INFO[world.timeMode || 'real'].short}</span>
                         {(world.offlineTickSlots?.length || 0) > 0 && (
                             <span className="text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-black/25 text-white/85 tracking-wider">离线运转中</span>
                         )}
@@ -742,7 +823,7 @@ const WorldView: React.FC<{
                                 <span className="text-[10px] font-bold tracking-[0.2em]">{latest ? '当前时刻' : '世界尚未开始'}</span>
                             </div>
                             <div className="text-[22px] font-black text-white leading-tight font-serif" style={{ textShadow: '0 2px 10px rgba(0,0,0,.3)' }}>
-                                {storyTimeLabel(world.storyClock)}
+                                {worldTimeLabel(world)}
                             </div>
                         </div>
                         <button onClick={observe} disabled={!!progress}
@@ -767,6 +848,52 @@ const WorldView: React.FC<{
             </div>
 
             <div className="px-4 mt-4 space-y-4">
+                {/* ── sim 模式：结卷进度 + 已归档的卷 ── */}
+                {isSim && (
+                    <div>
+                        <div className={`text-[10px] font-black tracking-[0.25em] uppercase px-1 mb-2 flex items-center gap-1.5 ${t.textLabel}`}><Article size={11} weight="fill" />编年史 · 每 {SIM_CHAPTER_DAYS} 天一卷</div>
+                        <div className={`rounded-2xl border p-3 ${t.panel}`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                                <span className={`text-[11px] font-bold ${t.textMain}`}>本卷进度</span>
+                                <span className={`text-[10px] ${t.textSub}`}>{daysToNextChapter > 0 ? `还有 ${daysToNextChapter} 天结第 ${chapters.length + 1} 卷` : '即将结卷'}</span>
+                            </div>
+                            <div className={`h-1.5 rounded-full overflow-hidden ${t.barTrack}`}>
+                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.round((daysIntoChapter / SIM_CHAPTER_DAYS) * 100)}%`, background: 'linear-gradient(90deg,#a78bfa,#7c3aed)' }} />
+                            </div>
+                        </div>
+                        {chapters.length > 0 && (
+                            <div className="space-y-2 mt-2.5">
+                                {chapters.map(ch => {
+                                    const open = openChapterId === ch.id;
+                                    return (
+                                        <div key={ch.id} className={`rounded-2xl border overflow-hidden ${t.panel}`}>
+                                            <button className="w-full text-left px-3 py-2.5 flex items-center gap-2" onClick={() => setOpenChapterId(open ? null : ch.id)}>
+                                                <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-violet-400/90 text-violet-950 shrink-0">第 {ch.index} 卷</span>
+                                                <span className={`text-[10.5px] truncate ${t.textSub}`}>{ch.fromLabel} ～ {ch.toLabel}</span>
+                                                {open ? <CaretDown size={13} className={`${t.textSub} ml-auto shrink-0`} /> : <CaretRight size={13} className={`${t.textSub} ml-auto shrink-0`} />}
+                                            </button>
+                                            {open && (
+                                                <div className={`px-3.5 pb-3 pt-0.5 border-t ${t.divider}`}>
+                                                    <p className={`text-[12px] leading-[1.85] whitespace-pre-wrap mt-2 ${t.textMain}`}>{ch.synopsis}</p>
+                                                    {ch.relationshipEval && (
+                                                        <div className="mt-3">
+                                                            <div className={`text-[9.5px] font-black tracking-wider flex items-center gap-1 ${t.textLabel}`}><Heart size={10} weight="fill" />关系走向</div>
+                                                            <p className={`text-[11.5px] leading-[1.8] mt-1 ${t.textSub}`}>{ch.relationshipEval}</p>
+                                                        </div>
+                                                    )}
+                                                    {ch.atmosphere && (
+                                                        <div className={`mt-3 text-[10.5px] italic rounded-lg px-2.5 py-1.5 ${isNight ? 'bg-white/5 text-indigo-200/70' : 'bg-violet-50/70 text-violet-700'}`}>氛围：{ch.atmosphere}</div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* ── 村庄：各家小屋（拜访） ── */}
                 <div>
                     <div className={`text-[10px] font-black tracking-[0.25em] uppercase px-1 mb-2 flex items-center gap-1.5 ${t.textLabel}`}><House size={11} weight="fill" />村庄 · 去串门</div>
@@ -1110,7 +1237,7 @@ const WorldHomeApp: React.FC = () => {
 
     const startCreate = () => {
         setDraft({
-            id: genId('world'), name: '', worldview: '', mode: 'light',
+            id: genId('world'), name: '', worldview: '', mode: 'light', timeMode: 'real',
             memberIds: [], npcs: [], houses: [], relationships: [],
             offlineTickSlots: [], storyClock: 0, injectToChat: true,
             createdAt: Date.now(), updatedAt: Date.now(),
@@ -1206,13 +1333,16 @@ const WorldHomeApp: React.FC = () => {
                                     <div className="relative flex -space-x-3 items-end">
                                         {ms.slice(0, 5).map(m => <ChibiFigure key={m.id} char={m} size={42} />)}
                                     </div>
-                                    <span className={`absolute top-2 right-3 text-[8.5px] font-black px-2 py-0.5 rounded-full ${MODE_INFO[w.mode].badge}`}>{MODE_INFO[w.mode].short}</span>
+                                    <div className="absolute top-2 right-3 flex items-center gap-1">
+                                        <span className={`text-[8.5px] font-black px-2 py-0.5 rounded-full ${TIME_MODE_INFO[w.timeMode || 'real'].badge}`}>{TIME_MODE_INFO[w.timeMode || 'real'].short}</span>
+                                        <span className={`text-[8.5px] font-black px-2 py-0.5 rounded-full ${MODE_INFO[w.mode].badge}`}>{MODE_INFO[w.mode].short}</span>
+                                    </div>
                                 </div>
                                 <div className="bg-white/90 px-3.5 py-2.5 flex items-center">
                                     <div className="min-w-0">
                                         <div className="text-[14px] font-black font-serif text-stone-800 truncate">{w.name}</div>
                                         <div className="text-[10px] text-stone-500 mt-0.5">
-                                            {ms.length} 位角色{w.npcs.length > 0 ? ` · ${w.npcs.length} 个NPC` : ''} · {storyTimeLabel(w.storyClock)}
+                                            {ms.length} 位角色{w.npcs.length > 0 ? ` · ${w.npcs.length} 个NPC` : ''} · {worldTimeLabel(w)}
                                         </div>
                                     </div>
                                     <CaretRight size={14} className="text-stone-400 shrink-0 ml-auto" />
