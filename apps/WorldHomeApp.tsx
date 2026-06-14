@@ -265,8 +265,9 @@ const PhoneModal: React.FC<{
     const PER = 8;
     const [feedPage, setFeedPage] = useState(0);
     const [memoPage, setMemoPage] = useState(0);
-    const DM_FOLD = 30;
+    const FOLD = 50; // 私聊/群聊超过这么多条就折叠，避免一次渲染太多卡顿
     const [dmExpanded, setDmExpanded] = useState(false);
+    const [groupExpanded, setGroupExpanded] = useState(false);
     useEffect(() => { setDmExpanded(false); }, [dmIdx]);
 
     // 把手机内容（动态）转发到「和 ta 的聊天」里
@@ -386,13 +387,13 @@ const PhoneModal: React.FC<{
                                                 </div>
                                             )}
                                             {activeDm && (() => {
-                                                const folded = !dmExpanded && activeDm.messages.length > DM_FOLD;
-                                                const shownThread = folded ? { ...activeDm, messages: activeDm.messages.slice(-DM_FOLD) } : activeDm;
+                                                const folded = !dmExpanded && activeDm.messages.length > FOLD;
+                                                const shownThread = folded ? { ...activeDm, messages: activeDm.messages.slice(-FOLD) } : activeDm;
                                                 return (
                                                     <div className="space-y-1.5">
                                                         {folded && (
                                                             <button onClick={() => setDmExpanded(true)} className="w-full text-[10px] font-bold py-1.5 rounded-full bg-white/10 text-white/60 active:scale-95 transition-transform">
-                                                                展开更早的 {activeDm.messages.length - DM_FOLD} 条
+                                                                展开更早的 {activeDm.messages.length - FOLD} 条
                                                             </button>
                                                         )}
                                                         <ThreadBubbles thread={shownThread} selfId={ownerId} members={members} npcs={world.npcs} />
@@ -405,12 +406,21 @@ const PhoneModal: React.FC<{
                             {tab === 'group' && (
                                 !group || group.messages.length === 0
                                     ? <div className="text-center text-[11px] text-white/40 pt-16">群里还没人说话</div>
-                                    : (
-                                        <div className="space-y-1.5">
-                                            <div className="text-center text-[9px] text-white/40 font-bold pb-1">「{group.name}」 · {group.memberIds.length} 人{world.npcs.length > 0 ? ` + ${world.npcs.length} NPC` : ''}</div>
-                                            <ThreadBubbles thread={group} selfId={ownerId} members={members} npcs={world.npcs} showNames />
-                                        </div>
-                                    )
+                                    : (() => {
+                                        const folded = !groupExpanded && group.messages.length > FOLD;
+                                        const shownGroup = folded ? { ...group, messages: group.messages.slice(-FOLD) } : group;
+                                        return (
+                                            <div className="space-y-1.5">
+                                                <div className="text-center text-[9px] text-white/40 font-bold pb-1">「{group.name}」 · {group.memberIds.length} 人{world.npcs.length > 0 ? ` + ${world.npcs.length} NPC` : ''}</div>
+                                                {folded && (
+                                                    <button onClick={() => setGroupExpanded(true)} className="w-full text-[10px] font-bold py-1.5 rounded-full bg-white/10 text-white/60 active:scale-95 transition-transform">
+                                                        展开更早的 {group.messages.length - FOLD} 条
+                                                    </button>
+                                                )}
+                                                <ThreadBubbles thread={shownGroup} selfId={ownerId} members={members} npcs={world.npcs} showNames />
+                                            </div>
+                                        );
+                                    })()
                             )}
                             {tab === 'memo' && (
                                 memos.length === 0
