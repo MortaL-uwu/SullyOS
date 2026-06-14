@@ -2695,8 +2695,6 @@ const Chat: React.FC = () => {
                             pendingIndicator={osTheme.chatPendingIndicator !== false}
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
-                            onLuckinSendCart={handleLuckinSendCart}
-                            onLuckinCandidate={handleLuckinCandidate}
                             thinkingChainOptions={thinkingChainOptions}
                         />
                         </div>
