@@ -1570,26 +1570,29 @@ const MessageItem = React.memo(({
         const card = (
             <div className="w-64">
                 <div
-                    className="rounded-xl overflow-hidden border border-emerald-300/40 shadow-[0_4px_16px_rgba(20,80,60,0.22)]"
-                    style={{ background: 'linear-gradient(155deg,#1d3b30 0%,#142921 100%)' }}
+                    className="relative rounded-2xl overflow-hidden border border-violet-300/30 shadow-[0_6px_20px_rgba(70,50,120,0.3)]"
+                    style={{ background: 'linear-gradient(155deg,#3a3566 0%,#241d44 100%)' }}
                 >
+                    {/* 星点 + 月亮氛围 */}
+                    <div className="absolute inset-0 pointer-events-none opacity-70" style={{ backgroundImage: 'radial-gradient(1px 1px at 18% 20%,#fff,transparent),radial-gradient(1px 1px at 72% 14%,#ffe9b0,transparent),radial-gradient(1px 1px at 44% 30%,#cfe2ff,transparent),radial-gradient(1px 1px at 88% 40%,#fff,transparent)' }} />
+                    <div className="absolute top-2 right-3 w-7 h-7 rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle at 38% 35%,#fbf7ff,#cabfe8 70%)', boxShadow: '0 0 14px 3px rgba(200,180,255,.35)' }} />
                     {/* 头部：家园 · 世界名 · 剧情时间 */}
-                    <div className="px-3 pt-2.5 pb-2 flex items-center gap-2 border-b border-white/10">
-                        <span className="text-base leading-none text-emerald-200/80" style={{ filter: 'drop-shadow(0 0 5px rgba(150,255,200,.5))' }}>⌂</span>
+                    <div className="relative px-3 pt-2.5 pb-2 flex items-center gap-2 border-b border-white/10">
+                        <span className="text-base leading-none text-violet-100" style={{ filter: 'drop-shadow(0 0 6px rgba(200,170,255,.6))' }}>⌂</span>
                         <div className="flex-1 min-w-0">
-                            <div className="text-[9px] tracking-[0.25em] text-emerald-300/80 font-bold uppercase">家园 · {md.storyTime || '生活记录'}</div>
-                            <div className="text-[12px] text-emerald-50 font-semibold truncate">{md.worldName || '共同世界'}</div>
+                            <div className="text-[9px] tracking-[0.25em] text-violet-200/80 font-bold uppercase">家园 · {md.storyTime || '生活记录'}</div>
+                            <div className="text-[12px] text-violet-50 font-semibold truncate font-serif">{md.worldName || '共同世界'}</div>
                         </div>
-                        <span className="text-[9px] text-emerald-300/60">{timeStr}</span>
+                        <span className="text-[9px] text-violet-200/55">{timeStr}</span>
                     </div>
                     {/* 行为描述 */}
-                    <div className="px-3 py-2.5">
-                        <p className="text-[11px] text-emerald-200/80 mb-1">
+                    <div className="relative px-3 py-2.5">
+                        <p className="text-[11px] text-violet-200/80 mb-1">
                             <span className="font-bold text-amber-200">{charName || 'Ta'}</span>
                             {md.location ? ` 在${md.location}` : ''}{md.mood ? ` · ${md.mood}` : ''}
                         </p>
                         {narrative && (
-                            <p className="text-[12px] leading-[1.55] text-emerald-50/90 whitespace-pre-wrap max-h-44 overflow-y-auto no-scrollbar">
+                            <p className="text-[12px] leading-[1.55] text-violet-50/90 whitespace-pre-wrap max-h-44 overflow-y-auto no-scrollbar">
                                 {narrative}
                             </p>
                         )}
@@ -1597,7 +1600,7 @@ const MessageItem = React.memo(({
                         {Object.keys(panel).length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1">
                                 {Object.entries(panel).map(([k, v]) => (
-                                    <span key={k} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-emerald-100/90 border border-white/10">
+                                    <span key={k} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-violet-100/90 border border-white/10">
                                         {k} {String(v)}
                                     </span>
                                 ))}
@@ -1607,7 +1610,7 @@ const MessageItem = React.memo(({
                         {posts.length > 0 && (
                             <div className="mt-2 space-y-1">
                                 {posts.map((p, i) => (
-                                    <div key={i} className="text-[11px] leading-snug text-emerald-200/85 pl-2 border-l-2 border-amber-300/50">
+                                    <div key={i} className="text-[11px] leading-snug text-violet-200/85 pl-2 border-l-2 border-amber-300/50">
                                         {p}
                                     </div>
                                 ))}
@@ -1615,8 +1618,8 @@ const MessageItem = React.memo(({
                         )}
                     </div>
                     {/* 页脚 */}
-                    <div className="px-3 py-1.5 border-t border-white/10 flex items-center justify-between">
-                        <span className="text-[9px] text-emerald-300/60 italic">Ta 在那个世界的生活</span>
+                    <div className="relative px-3 py-1.5 border-t border-white/10 flex items-center justify-between">
+                        <span className="text-[9px] text-violet-200/55 italic">Ta 在那个世界的生活</span>
                         <span className="text-[9px] text-amber-200/70 font-bold tracking-wide">＋记忆</span>
                     </div>
                 </div>
