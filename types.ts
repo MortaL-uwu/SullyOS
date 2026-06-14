@@ -821,7 +821,7 @@ export interface WorldThread {
 }
 
 /** 大段正文的文风。 */
-export type WorldNarrativeStyle = 'warm' | 'inner' | 'drama' | 'breezy' | 'custom';
+export type WorldNarrativeStyle = 'warm' | 'inner' | 'drama' | 'breezy' | 'sitcom' | 'custom';
 
 /**
  * 伏笔：角色这半天瞒下的事（timeline 里 shared=false 对应的内幕）。

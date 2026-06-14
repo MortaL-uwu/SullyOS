@@ -30,6 +30,10 @@ export const NARRATIVE_STYLES: Record<Exclude<WorldNarrativeStyle, 'custom'>, { 
         name: '轻快幽默',
         guide: '口语化、自嘲、吐槽视角；节奏明快，把倒霉事写出喜感；像角色本人在跟好朋友讲段子，但底色仍要真实。',
     },
+    sitcom: {
+        name: '日常轻喜剧',
+        guide: '情景喜剧的节奏：一桩鸡毛蒜皮的小事被一步步放大成闹剧（误会、乌龙、一个谎要用十个谎圆），角色之间一来一回的拌嘴和吐槽密集、有梗有节拍；动作和反应略夸张但人物动机合理，收尾常有个温馨或哭笑不得的反转。轻松好笑为主，别真往沉重里写。',
+    },
 };
 
 export function narrativeStyleGuide(world: WorldProfile): string {
@@ -288,6 +292,62 @@ ${groupSection}
 - 手机里标【刚刚】的消息该回就回（phone.dms / phone.group），已读不回也行，但要符合你的性格；鼓励聊得丰富些。
 - dialogues 只在你的 timeline 和对方真的有共处时才用；不在一起就用手机，或者互相挂念/冷战都行——聚焦你自己。
 - relationships 只在真的发生了影响关系的事时才给。`;
+}
+
+/**
+ * 让 LLM 读一遍世界观 + 各角色人设，roll 几个贴合这个世界的配角 NPC。
+ * members 传入的是「名字 + 人设摘要」，prompt 只用来生成氛围配角，不替主角做决定。
+ */
+export function buildNpcRollPrompt(args: {
+    worldName: string;
+    worldview: string;
+    members: { name: string; persona: string }[];
+    count: number;
+    existingNames: string[];
+}): string {
+    const { worldName, worldview, members, count, existingNames } = args;
+    return `你在为共同世界「${worldName}」设计 ${count} 个配角 NPC。NPC 没有记忆，纯粹为世界观氛围服务、给主角们的生活添点烟火气与可接住的小事件。
+
+## 世界观
+${worldview || '（一个安静的小世界，作者还没细写，请你据角色们推断这个世界大概是什么样）'}
+
+## 住在这个世界里的主角（你不设计他们，只据他们的身份/圈子推断身边会有哪些人）
+${members.length > 0 ? members.map(m => `- ${m.name}：${m.persona || '（没写人设）'}`).join('\n') : '（暂时没有主角信息）'}
+${existingNames.length > 0 ? `\n## 已有的 NPC（别重名、别重复）\n${existingNames.join('、')}` : ''}
+
+要求：贴合世界观与主角们的生活场景（他们会去的店、会打交道的人、住在隔壁的邻居……），名字自然，人设一句话点到为止、各有记忆点，彼此别雷同。严格输出一个 JSON 对象（建议 \`\`\`json 包裹，不要输出 JSON 之外的正文）：
+{
+  "npcs": [
+    { "name": "NPC名字", "persona": "一句话人设（身份+一个鲜明特点，例：面包店老板娘，热心肠爱给人塞吃的）", "emoji": "一个能代表ta的 emoji" }
+  ]
+}
+只要 ${count} 个，宁缺毋滥。`;
+}
+
+/** 解析 roll 出来的 NPC。返回 {name, persona, emoji}[]，过滤空名/重名。 */
+export function parseRolledNpcs(raw: string, existingNames: string[] = []): { name: string; persona: string; emoji: string }[] {
+    const j = extractJson(raw);
+    let arr: any[] = Array.isArray(j?.npcs) ? j.npcs : Array.isArray(j) ? j : [];
+    if (arr.length === 0) {
+        // 兜底：模型直接吐了个裸数组 [ ... ]（extractJson 只认对象）
+        const m = (raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').match(/\[[\s\S]*\]/);
+        if (m) { try { const a = JSON.parse(m[0]); if (Array.isArray(a)) arr = a; } catch { /* ignore */ } }
+    }
+    const seen = new Set(existingNames.map(n => n.trim()));
+    const out: { name: string; persona: string; emoji: string }[] = [];
+    for (const n of arr) {
+        if (!n || typeof n.name !== 'string') continue;
+        const name = n.name.trim().slice(0, 16);
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        out.push({
+            name,
+            persona: (typeof n.persona === 'string' ? n.persona.trim() : '').slice(0, 60),
+            emoji: (typeof n.emoji === 'string' && n.emoji.trim() ? n.emoji.trim() : '🙂').slice(0, 4),
+        });
+        if (out.length >= 8) break;
+    }
+    return out;
 }
 
 /** NPC 世界引擎回合（一次调用演完所有 NPC；NPC 无记忆，仅靠世界观+上轮梗概）。 */

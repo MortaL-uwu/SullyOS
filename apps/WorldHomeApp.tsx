@@ -22,12 +22,22 @@ import {
 } from '@phosphor-icons/react';
 import { DB } from '../utils/db';
 import { getChibi } from '../utils/vrWorld/chibi';
-import { WorldScheduler, WorldTickSlot } from '../utils/worldHome/scheduler';
+import { WorldScheduler } from '../utils/worldHome/scheduler';
 import { isWorldRunning } from '../utils/worldHome/engine';
-import { worldTimeLabel, houseOf, NARRATIVE_STYLES } from '../utils/worldHome/prompts';
+import { worldTimeLabel, houseOf, NARRATIVE_STYLES, buildNpcRollPrompt, parseRolledNpcs } from '../utils/worldHome/prompts';
 import { SIM_CHAPTER_DAYS, SIM_CHAPTER_CLOCKS } from '../utils/worldHome/chapters';
 import { dmThreadsOf, groupThreadOf } from '../utils/worldHome/threads';
-import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldTimeMode, WorldHouse, WorldThread, WorldNarrativeStyle, CharacterProfile, WorldCharBeat } from '../types';
+import { safeFetchJson } from '../utils/safeApi';
+import type { WorldProfile, WorldEpisode, WorldHomeMode, WorldTimeMode, WorldHouse, WorldThread, WorldNarrativeStyle, CharacterProfile, WorldCharBeat, APIConfig, ApiPreset } from '../types';
+
+/** 自定义文风的本地收藏（localStorage，跨世界复用）。 */
+const CUSTOM_STYLE_KEY = 'world_custom_styles';
+const loadSavedStyles = (): string[] => {
+    try { const s = localStorage.getItem(CUSTOM_STYLE_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+};
+const persistSavedStyles = (list: string[]) => {
+    try { localStorage.setItem(CUSTOM_STYLE_KEY, JSON.stringify(list.slice(0, 12))); } catch { /* ignore */ }
+};
 
 const genId = (p: string) => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -51,12 +61,6 @@ const TIME_MODE_INFO: Record<WorldTimeMode, { name: string; short: string; desc:
         badge: 'bg-violet-400/90 text-violet-950',
     },
 };
-
-const TICK_SLOT_INFO: { id: WorldTickSlot; label: string }[] = [
-    { id: 'morning', label: '早（9点后）' },
-    { id: 'noon', label: '午（14点后）' },
-    { id: 'evening', label: '晚（21点后）' },
-];
 
 /** 全局动画 keyframes（云朵漂浮 / 星星闪烁 / 微光扫过）。 */
 const GameStyles: React.FC = () => (
@@ -317,13 +321,64 @@ const PhoneModal: React.FC<{
 const WorldEditor: React.FC<{
     draft: WorldProfile;
     characters: CharacterProfile[];
+    apiConfig: APIConfig;
+    apiPresets: ApiPreset[];
+    addToast: (m: string, t?: any) => void;
     onSave: (w: WorldProfile) => void;
     onCancel: () => void;
     onDelete?: () => void;
-}> = ({ draft, characters, onSave, onCancel, onDelete }) => {
+}> = ({ draft, characters, apiConfig, apiPresets, addToast, onSave, onCancel, onDelete }) => {
     const [w, setW] = useState<WorldProfile>(draft);
     const upd = (updates: Partial<WorldProfile>) => setW(prev => ({ ...prev, ...updates }));
     const members = useMemo(() => w.memberIds.map(id => characters.find(c => c.id === id)).filter(Boolean) as CharacterProfile[], [w.memberIds, characters]);
+
+    // AI roll NPC
+    const [rolling, setRolling] = useState(false);
+    const rollNpcs = async () => {
+        const api = w.api?.baseUrl ? w.api : apiConfig;
+        if (!api?.baseUrl) { addToast('还没有可用的 API（先在设置里配一个，或给这个世界选个预设）', 'error'); return; }
+        setRolling(true);
+        try {
+            const baseUrl = api.baseUrl.replace(/\/+$/, '');
+            const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api.apiKey || 'sk-none'}` },
+                body: JSON.stringify({
+                    model: api.model,
+                    messages: [{ role: 'user', content: buildNpcRollPrompt({
+                        worldName: w.name || '这个世界',
+                        worldview: w.worldview,
+                        members: members.map(m => ({ name: m.name, persona: (m.description || m.systemPrompt || '').replace(/\s+/g, ' ').trim().slice(0, 200) })),
+                        count: 3,
+                        existingNames: w.npcs.map(n => n.name).filter(Boolean),
+                    }) }],
+                    temperature: 0.95, stream: false,
+                }),
+            }, 2, 0, { appName: '家园', purpose: `roll NPC · ${w.name || '新世界'}` });
+            const rolled = parseRolledNpcs(data.choices?.[0]?.message?.content || '', w.npcs.map(n => n.name));
+            if (rolled.length === 0) { addToast('这次没 roll 出新的，再试一次？', 'error'); return; }
+            upd({ npcs: [...w.npcs, ...rolled.map(n => ({ id: genId('npc'), name: n.name, persona: n.persona, emoji: n.emoji }))] });
+            addToast(`roll 到 ${rolled.length} 个 NPC，可以再改`, 'success');
+        } catch (e) {
+            addToast('roll 失败了，检查下 API', 'error');
+        } finally {
+            setRolling(false);
+        }
+    };
+
+    // 自定义文风收藏
+    const [savedStyles, setSavedStyles] = useState<string[]>(loadSavedStyles);
+    const saveCurrentStyle = () => {
+        const txt = (w.narrativeStyleCustom || '').trim();
+        if (!txt) return;
+        const next = [txt, ...savedStyles.filter(s => s !== txt)].slice(0, 12);
+        setSavedStyles(next); persistSavedStyles(next);
+        addToast('文风已收藏，下次创建世界能直接选', 'success');
+    };
+    const removeSavedStyle = (txt: string) => {
+        const next = savedStyles.filter(s => s !== txt);
+        setSavedStyles(next); persistSavedStyles(next);
+    };
 
     const toggleMember = (id: string) => {
         if (w.memberIds.includes(id)) {
@@ -460,9 +515,27 @@ const WorldEditor: React.FC<{
                     <div className="text-[12px] font-bold">自定义文风</div>
                 </button>
                 {w.narrativeStyle === 'custom' && (
-                    <textarea className={`${inputCls} h-20 resize-none`} value={w.narrativeStyleCustom || ''}
-                        onChange={e => upd({ narrativeStyleCustom: e.target.value })}
-                        placeholder="描述你想要的文风：比如「古早港风言情，对白多，画面感强，带一点宿命感」" />
+                    <div className="space-y-2">
+                        <textarea className={`${inputCls} h-20 resize-none`} value={w.narrativeStyleCustom || ''}
+                            onChange={e => upd({ narrativeStyleCustom: e.target.value })}
+                            placeholder="描述你想要的文风：比如「古早港风言情，对白多，画面感强，带一点宿命感」" />
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-stone-400">收藏后下次创建世界能直接选用</span>
+                            <button onClick={saveCurrentStyle} disabled={!(w.narrativeStyleCustom || '').trim()}
+                                className="text-[11px] px-2.5 py-1 rounded-lg bg-stone-900 text-white font-bold flex items-center gap-1 disabled:opacity-40 active:scale-95 transition-transform">
+                                <Heart size={11} weight="fill" />收藏这个文风</button>
+                        </div>
+                        {savedStyles.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                {savedStyles.map((s, i) => (
+                                    <span key={i} className={`group flex items-center gap-1 max-w-full text-[10.5px] px-2 py-1 rounded-full border transition-all ${w.narrativeStyleCustom === s ? 'bg-stone-900 border-stone-900 text-white' : 'bg-white border-stone-200 text-stone-600'}`}>
+                                        <button onClick={() => upd({ narrativeStyleCustom: s })} className="truncate max-w-[180px] text-left">{s.slice(0, 28)}{s.length > 28 ? '…' : ''}</button>
+                                        <button onClick={() => removeSavedStyle(s)} className="opacity-50 hover:opacity-100 shrink-0"><X size={11} weight="bold" /></button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -508,11 +581,17 @@ const WorldEditor: React.FC<{
             </div>
 
             <div className={sectionCls}>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                     <div className={labelCls}>NPC（无记忆，纯为世界观服务，一次调用全演完）</div>
-                    <button onClick={() => upd({ npcs: [...w.npcs, { id: genId('npc'), name: '', persona: '', emoji: '🙂' }] })}
-                        className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 font-bold flex items-center gap-1 border border-amber-200"><Plus size={12} weight="bold" />NPC</button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <button onClick={rollNpcs} disabled={rolling}
+                            className="text-[11px] px-2.5 py-1 rounded-lg bg-violet-100 text-violet-700 font-bold flex items-center gap-1 border border-violet-200 disabled:opacity-50 active:scale-95 transition-transform">
+                            <Sparkle size={12} weight="fill" />{rolling ? 'roll 中…' : 'AI roll'}</button>
+                        <button onClick={() => upd({ npcs: [...w.npcs, { id: genId('npc'), name: '', persona: '', emoji: '🙂' }] })}
+                            className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 font-bold flex items-center gap-1 border border-amber-200"><Plus size={12} weight="bold" />NPC</button>
+                    </div>
                 </div>
+                <div className="text-[10px] text-stone-400 leading-snug -mt-1">AI roll：让模型读一遍世界观和角色们的人设，自动配几个贴合的配角，可再手动改。</div>
                 {w.npcs.map(n => (
                     <div key={n.id} className="rounded-xl border border-stone-200 bg-white p-2.5 space-y-1.5">
                         <div className="flex items-center gap-2">
@@ -553,37 +632,51 @@ const WorldEditor: React.FC<{
                 </div>
             )}
 
-            <div className={sectionCls}>
-                <div className={labelCls}>离线 tick（不开 App 世界也慢慢走；每个时段当天最多一轮，链式调用 N 个角色比较贵）</div>
-                <div className="flex gap-2">
-                    {TICK_SLOT_INFO.map(s => {
-                        const on = (w.offlineTickSlots || []).includes(s.id);
-                        return (
-                            <button key={s.id} onClick={() => upd({ offlineTickSlots: on ? (w.offlineTickSlots || []).filter(x => x !== s.id) : [...(w.offlineTickSlots || []), s.id] })}
-                                className={`flex-1 text-[11px] py-1.5 rounded-xl border font-bold transition-all ${on ? 'bg-stone-900 border-stone-900 text-white shadow-md' : 'bg-white border-stone-200 text-stone-600'}`}>
-                                {s.label}
-                            </button>
-                        );
-                    })}
-                </div>
-                {(w.timeMode || 'real') === 'real' ? (
-                    <label className="flex items-center justify-between pt-1">
+            {(w.timeMode || 'real') === 'real' && (
+                <div className={sectionCls}>
+                    <div className={labelCls}>记忆与聊天</div>
+                    <label className="flex items-center justify-between">
                         <span className="text-[12px] text-stone-700">生成内容注入聊天（world_card，进上下文与记忆）</span>
                         <input type="checkbox" checked={w.injectToChat !== false} onChange={e => upd({ injectToChat: e.target.checked })} className="w-4 h-4 accent-amber-500" />
                     </label>
-                ) : (
-                    <div className="text-[11px] text-violet-600 bg-violet-50/60 rounded-lg px-2.5 py-1.5 leading-snug">模拟时间：演绎不写入聊天与记忆，只在家园里以章节总结沉淀。</div>
-                )}
-            </div>
+                    <div className="text-[10px] text-stone-400 leading-snug">世界靠你主动「观测」推进半天（早/午/晚三段时光流逝），需要的时候来点一下就行。</div>
+                </div>
+            )}
 
             <div className={sectionCls}>
-                <div className={labelCls}>独立 API 覆盖（可选，不填用全局）</div>
-                <input className={inputCls} placeholder="Base URL" value={w.api?.baseUrl || ''}
-                    onChange={e => upd({ api: { baseUrl: e.target.value, apiKey: w.api?.apiKey || '', model: w.api?.model || '' } })} />
-                <input className={inputCls} placeholder="API Key" type="password" value={w.api?.apiKey || ''}
-                    onChange={e => upd({ api: { baseUrl: w.api?.baseUrl || '', apiKey: e.target.value, model: w.api?.model || '' } })} />
-                <input className={inputCls} placeholder="Model" value={w.api?.model || ''}
-                    onChange={e => upd({ api: { baseUrl: w.api?.baseUrl || '', apiKey: w.api?.apiKey || '', model: e.target.value } })} />
+                <div className={labelCls}>这个世界用哪份 API（默认跟随全局，可选「设置」里保存的预设）</div>
+                {(() => {
+                    const host = (u?: string) => { try { return u ? new URL(u).host : '—'; } catch { return u || '—'; } };
+                    const follow = !w.api?.baseUrl;
+                    const sameAs = (c: APIConfig) => !follow && w.api!.baseUrl === c.baseUrl && w.api!.model === c.model && w.api!.apiKey === c.apiKey;
+                    return (
+                        <>
+                            <button onClick={() => upd({ api: undefined })}
+                                className={`w-full flex items-center gap-2 rounded-xl p-2.5 text-left border transition-all ${follow ? 'bg-stone-900 border-stone-900 text-white shadow' : 'bg-white border-stone-200 text-stone-700'}`}>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-[12px] font-bold">跟随全局默认</div>
+                                    <div className={`text-[10px] truncate ${follow ? 'text-white/60' : 'text-stone-400'}`}>{apiConfig?.model || '未配置'} · {host(apiConfig?.baseUrl)}</div>
+                                </div>
+                                {follow && <span className="text-[10px] font-bold shrink-0">✓ 使用中</span>}
+                            </button>
+                            {apiPresets.length === 0 ? (
+                                <p className="text-[10.5px] text-stone-400 px-1 pt-1.5">「设置」里还没有保存的 API 预设——去设置里存几个模型，这里就能直接选。</p>
+                            ) : apiPresets.map(p => {
+                                const on = sameAs(p.config);
+                                return (
+                                    <button key={p.id} onClick={() => upd({ api: { baseUrl: p.config.baseUrl, apiKey: p.config.apiKey, model: p.config.model } })}
+                                        className={`w-full flex items-center gap-2 rounded-xl p-2.5 text-left border transition-all ${on ? 'bg-stone-900 border-stone-900 text-white shadow' : 'bg-white border-stone-200 text-stone-700'}`}>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-[12px] font-bold truncate">{p.name}</div>
+                                            <div className={`text-[10px] truncate ${on ? 'text-white/60' : 'text-stone-400'}`}>{p.config.model} · {host(p.config.baseUrl)}</div>
+                                        </div>
+                                        {on && <span className="text-[10px] font-bold shrink-0">✓ 使用中</span>}
+                                    </button>
+                                );
+                            })}
+                        </>
+                    );
+                })()}
             </div>
 
             {onDelete && (
@@ -1269,7 +1362,7 @@ const WorldView: React.FC<{
 // 主组件
 // ============================================================
 const WorldHomeApp: React.FC = () => {
-    const { closeApp, characters, addToast } = useOS();
+    const { closeApp, characters, addToast, apiConfig, apiPresets } = useOS();
     const [worlds, setWorlds] = useState<WorldProfile[]>([]);
     const [view, setView] = useState<'list' | 'edit' | 'world'>('list');
     const [activeId, setActiveId] = useState<string | null>(null);
@@ -1407,6 +1500,9 @@ const WorldHomeApp: React.FC = () => {
                 <WorldEditor
                     draft={draft}
                     characters={characters}
+                    apiConfig={apiConfig}
+                    apiPresets={apiPresets}
+                    addToast={addToast}
                     onSave={saveWorld}
                     onCancel={goBack}
                     onDelete={worlds.some(w => w.id === draft.id) ? () => deleteWorld(draft.id) : undefined}

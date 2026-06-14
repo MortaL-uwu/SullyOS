@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { extractJson, parseCharBeat, parseNpcScene, storyTimeLabel, buildModeRule, buildWorldCharTurn } from './prompts';
+import { extractJson, parseCharBeat, parseNpcScene, storyTimeLabel, buildModeRule, buildWorldCharTurn, parseRolledNpcs, buildNpcRollPrompt, NARRATIVE_STYLES } from './prompts';
 import { applyRelationshipDeltas, collectSeeds, buildSummary } from './engine';
 import { ensureThreads, applyBeatToThreads, applyNpcGroupLines, dmThreadsOf, groupThreadOf, formatThreadForPrompt, dmThreadId, GROUP_THREAD_ID } from './threads';
 import { WorldScheduler } from './scheduler';
@@ -130,6 +130,48 @@ describe('parseNpcScene', () => {
         expect(out.scene).toBe('镇子很安静。');
         expect(out.hooks).toEqual([]);
         expect(out.groupLines).toEqual([]);
+    });
+});
+
+describe('文风预设', () => {
+    it('新增「日常轻喜剧」preset 可用', () => {
+        expect(NARRATIVE_STYLES.sitcom).toBeTruthy();
+        expect(NARRATIVE_STYLES.sitcom.name).toBe('日常轻喜剧');
+        expect(NARRATIVE_STYLES.sitcom.guide.length).toBeGreaterThan(20);
+    });
+});
+
+describe('AI roll NPC', () => {
+    it('buildNpcRollPrompt 带上世界观、角色人设、已有 NPC 与数量', () => {
+        const prompt = buildNpcRollPrompt({
+            worldName: '栗子镇', worldview: '海边小镇',
+            members: [{ name: '小满', persona: '画师，怕生' }],
+            count: 3, existingNames: ['老板娘'],
+        });
+        expect(prompt).toContain('栗子镇');
+        expect(prompt).toContain('小满：画师，怕生');
+        expect(prompt).toContain('老板娘');
+        expect(prompt).toContain('3');
+    });
+
+    it('parseRolledNpcs：解析 npcs，补默认 emoji，过滤空名/重名/超量', () => {
+        const raw = JSON.stringify({
+            npcs: [
+                { name: '面包店老板娘', persona: '热心肠', emoji: '🥖' },
+                { name: '', persona: 'x' },                 // 空名过滤
+                { name: '老张', persona: '修鞋的' },          // 无 emoji → 默认
+                { name: '老板娘', persona: '重名' },          // 与已有重名过滤
+            ],
+        });
+        const out = parseRolledNpcs(raw, ['老板娘']);
+        expect(out).toHaveLength(2);
+        expect(out[0]).toEqual({ name: '面包店老板娘', persona: '热心肠', emoji: '🥖' });
+        expect(out[1].emoji).toBe('🙂');
+    });
+
+    it('parseRolledNpcs：裸数组也能解析，解析失败返回空', () => {
+        expect(parseRolledNpcs('[{"name":"阿福","persona":"门卫"}]')).toHaveLength(1);
+        expect(parseRolledNpcs('不是 JSON')).toEqual([]);
     });
 });
 
