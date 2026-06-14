@@ -7,7 +7,7 @@ import { VRScheduler } from '../utils/vrWorld/scheduler';
 import { runVRSession } from '../utils/vrWorld/runSession';
 import { VR_DEFAULT_INTERVAL_MIN } from '../utils/vrWorld/constants';
 import { WorldScheduler } from '../utils/worldHome/scheduler';
-import { runWorldEpisode } from '../utils/worldHome/engine';
+import { runWorldEpisode, rerollWorldCharBeat } from '../utils/worldHome/engine';
 import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { recordApiCall, setApiCallAmbientContext } from '../utils/apiCallLog';
@@ -1855,6 +1855,32 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
       };
       WorldScheduler.onTrigger((worldId, trigger) => { void runWorld(worldId, trigger); });
+
+      // 单个角色重 roll（家园 WorldView 派发 world-reroll-request 事件，带 worldId/charId/direction）
+      const onRerollRequest = async (e: Event) => {
+          const d = (e as CustomEvent).detail || {};
+          if (!d.worldId || !d.charId || !userProfileRef.current) return;
+          try {
+              const world = await DB.getWorld(d.worldId);
+              if (!world) return;
+              await rerollWorldCharBeat({
+                  world,
+                  characters: charactersRef.current,
+                  apiConfig: apiConfigRef.current,
+                  userProfile: userProfileRef.current,
+                  groups: groupsRef.current,
+                  realtimeConfig: realtimeConfigRef.current,
+                  memoryPalaceConfig: memoryPalaceConfigRef.current,
+                  trigger: 'observe',
+                  episodeId: d.episodeId,
+                  charId: d.charId,
+                  direction: d.direction,
+              });
+          } catch (err) {
+              console.error('[WorldHome] reroll error', err);
+          }
+      };
+      window.addEventListener('world-reroll-request', onRerollRequest as EventListener);
       // 调度表存 localStorage 不随备份迁移，按 IndexedDB 里的世界配置对账
       void DB.getWorlds()
           .then(worlds => WorldScheduler.reconcile(
@@ -1869,6 +1895,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           ProactiveChat.onTrigger(() => {});
           VRScheduler.onTrigger(() => {});
           WorldScheduler.onTrigger(() => {});
+          window.removeEventListener('world-reroll-request', onRerollRequest as EventListener);
       };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDataLoaded]);

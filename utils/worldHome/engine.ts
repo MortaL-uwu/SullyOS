@@ -352,6 +352,9 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
         }
 
         // ── 3. 落库：episode + 关系回填 + 剧情时钟推进 ──
+        // 成功的角色照常保留；没演出来的记下 charId，UI 提示用户可单独重 roll
+        const okIds = new Set(beats.map(b => b.charId));
+        const failedCharIds = members.filter(m => !okIds.has(m.id)).map(m => m.id);
         const episode: WorldEpisode = {
             id: genId('we'),
             worldId: world.id,
@@ -361,6 +364,7 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
             npcScene,
             npcHooks: npcHooks.length > 0 ? npcHooks : undefined,
             beats,
+            failedCharIds: failedCharIds.length > 0 ? failedCharIds : undefined,
             summary: buildSummary(storyTime, beats, npcHooks),
             createdAt: Date.now(),
         };
@@ -473,6 +477,112 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
         return { ok: true, episode };
     } catch (err) {
         console.error('[WorldHome] episode error:', err);
+        return { ok: false, reason: 'error' };
+    } finally {
+        running.delete(world.id);
+        dispatch('world-episode-end', { worldId: world.id });
+    }
+}
+
+/**
+ * 单个角色重 roll：只重演某一轮里某个角色这一拍（用于本轮该角色生成失败、或用户想换个写法）。
+ * - direction：用户给的「大致重写方向」，没有就完全重写。
+ * - 之前是「失败缺这拍」→ 补上后照常落线程/伏笔/关系，真实模式补一张 world_card；
+ *   之前已有这拍（用户想换写法）→ 只替换这拍内容，不重复落副作用（避免重复加好感/重复消息）。
+ */
+export async function rerollWorldCharBeat(
+    deps: WorldEpisodeDeps & { episodeId: string; charId: string; direction?: string },
+): Promise<WorldEpisodeResult> {
+    const { world, characters, apiConfig, userProfile, groups, realtimeConfig, episodeId, charId, direction } = deps;
+    if (running.has(world.id)) return { ok: false, reason: 'busy' };
+    const members = world.memberIds.map(id => characters.find(c => c.id === id)).filter(Boolean) as CharacterProfile[];
+    const char = members.find(m => m.id === charId);
+    if (!char) return { ok: false, reason: 'no-char' };
+    const memberNames = members.map(m => m.name);
+    const worldHomeApi = readWorldHomeApiOverride();
+    const api = world.api?.baseUrl ? world.api : (worldHomeApi || apiConfig);
+    if (!api.baseUrl) return { ok: false, reason: 'no-api' };
+    const baseUrl = api.baseUrl.replace(/\/+$/, '');
+
+    const episodes = await DB.getWorldEpisodes(world.id, 30);
+    const episode = episodes.find(e => e.id === episodeId);
+    if (!episode) return { ok: false, reason: 'no-episode' };
+    const hadBeat = episode.beats.some(b => b.charId === charId);
+
+    running.add(world.id);
+    dispatch('world-episode-start', { worldId: world.id, worldName: world.name, storyTime: episode.storyTime, total: 1 });
+    dispatch('world-beat-done', { worldId: world.id, stage: 'char', charId, charName: char.name, done: 0, total: 1 });
+    try {
+        const prevEp = episodes.find(e => e.round === episode.round - 1);
+        const otherBeats = episode.beats.filter(b => b.charId !== charId);
+        const others = memberNames.filter(n => n !== char.name);
+        const recallQueryHint = others.length > 0
+            ? `此刻在「${world.name}」共同生活的人：${others.join('、')}。\n我对${others.join('、')}的印象、我和${others.join('、')}之间的关系与过往。`
+            : undefined;
+        const contextLimit = char.contextLimit || 500;
+        const historyMsgs = await DB.getRecentMessagesByCharId(char.id, contextLimit);
+        const payload = await buildChatRequestPayload({
+            char, userProfile, groups, emojis: [], categories: [],
+            historyMsgs, contextLimit, realtimeConfig, recallQueryHint,
+        });
+        const systemPrompt = payload.systemPrompt + buildWorldSystemAddendum(world, char, userProfile?.name || '');
+        const latestChapter = (world.chapters || [])[(world.chapters?.length || 0) - 1];
+        const priorChapter = (world.timeMode === 'sim' && latestChapter)
+            ? { atmosphere: latestChapter.atmosphere, charPerspective: latestChapter.perspectives.find(p => p.charId === char.id)?.text }
+            : undefined;
+        let turn = buildWorldCharTurn({
+            world, char, members, storyTime: episode.storyTime, round: episode.round, lastSummary: prevEp?.summary,
+            npcScene: episode.npcScene, npcHooks: episode.npcHooks, beatsSoFar: otherBeats,
+            recentPosts: collectRecentPosts(prevEp?.beats || [], otherBeats),
+            exposures: buildExposures(world, char.id, char.name),
+            priorChapter, userName: userProfile?.name || '',
+        });
+        if (direction && direction.trim()) {
+            turn += `\n\n## 重写方向（用户希望这次往这个方向重演，请据此给出全新的一拍）\n${direction.trim()}`;
+        }
+        const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api.apiKey || 'sk-none'}` },
+            body: JSON.stringify({
+                model: api.model,
+                messages: [{ role: 'system', content: systemPrompt }, ...payload.cleanedApiMessages, { role: 'user', content: turn }],
+                temperature: 0.95, stream: false,
+            }),
+        }, 2, 0, { appName: '家园', charId: char.id, charName: char.name, purpose: `重演 · ${world.name}` });
+        const beat = parseCharBeat(data.choices?.[0]?.message?.content || '', char, memberNames, world.npcs.map(n => n.name));
+
+        const newBeats = hadBeat ? episode.beats.map(b => b.charId === charId ? beat : b) : [...episode.beats, beat];
+        const stillFailed = (episode.failedCharIds || []).filter(id => id !== charId);
+        const updatedEp: WorldEpisode = {
+            ...episode,
+            beats: newBeats,
+            failedCharIds: stillFailed.length > 0 ? stillFailed : undefined,
+            summary: buildSummary(episode.storyTime, newBeats, episode.npcHooks || []),
+        };
+        await DB.saveWorldEpisode(updatedEp);
+
+        // 仅当之前是「失败缺这拍」时补副作用，避免对已有拍重复加好感/重复消息
+        if (!hadBeat) {
+            applyBeatToThreads(world, beat, members, episode.round, episode.storyTime);
+            collectSeeds(world, beat, episode.round, episode.storyTime);
+            applyRelationshipDeltas(world, [beat], members);
+            await DB.saveWorld({ ...world, threads: world.threads, seeds: world.seeds, relationships: world.relationships, updatedAt: Date.now() });
+            if (world.timeMode !== 'sim' && world.injectToChat !== false) {
+                const meta: WorldCardMeta = {
+                    worldCard: true, worldId: world.id, worldName: world.name, mode: world.mode,
+                    round: episode.round, storyTime: episode.storyTime, location: beat.location, mood: beat.mood,
+                    narrative: beat.narrative, statusPanel: beat.statusPanel, timeline: beat.timeline, memo: beat.memo,
+                    impulse: beat.impulse, phonePosts: beat.phone?.posts, phoneGroup: beat.phone?.group,
+                };
+                try {
+                    await DB.saveMessage({ charId: beat.charId, role: 'assistant', type: 'world_card', content: buildCardContent(world, episode.storyTime, beat), metadata: meta });
+                } catch { /* ignore */ }
+            }
+        }
+        dispatch('world-episode-done', { worldId: world.id, episodeId: updatedEp.id, storyTime: episode.storyTime, round: episode.round });
+        return { ok: true, episode: updatedEp };
+    } catch (err) {
+        console.error('[WorldHome] reroll error:', err);
         return { ok: false, reason: 'error' };
     } finally {
         running.delete(world.id);

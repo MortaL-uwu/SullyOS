@@ -969,6 +969,8 @@ export interface WorldEpisode {
     /** NPC 留下的、可被下一轮角色接住的事件钩子 */
     npcHooks?: string[];
     beats: WorldCharBeat[];
+    /** 本轮没演出来（LLM 调用/解析失败）的成员 charId——UI 提示用户可重 roll */
+    failedCharIds?: string[];
     /** 机械拼接的本轮梗概，喂给下一轮做连续性 */
     summary: string;
     createdAt: number;
