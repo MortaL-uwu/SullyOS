@@ -382,6 +382,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
 6. **可用动作**:
    - 回戳用户: \`[[ACTION:POKE]]\`
    - 转账: \`[[ACTION:TRANSFER:100]]\`
+   - **处理用户转账**: 当看到 \`[系统: 用户向你转账 X]\` 时，你可以决定收下或退回。收下: \`[[ACTION:TRANSFER_ACCEPT]]\`；退回: \`[[ACTION:TRANSFER_RETURN]]\`。请结合人设和情境自然选择（比如害羞地退回、开心地收下），并配上一句话。
    - 调取记忆: \`[[RECALL: YYYY-MM]]\`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作
    - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
    - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。
@@ -803,7 +804,24 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
                 if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') content = `${content}\n\n${timeGapHint}`; 
                 
                 if (m.type === 'interaction') content = `${timeStr} [系统: 用户戳了你一下]`; 
-                else if (m.type === 'transfer') content = `${timeStr} [系统: 用户转账 ${m.metadata?.amount}]`;
+                else if (m.type === 'transfer') {
+                    const tMeta = m.metadata || {};
+                    const amtStr = tMeta.amount !== undefined ? ` ${tMeta.amount}` : '';
+                    const uName = userProfile?.name || '用户';
+                    if (tMeta.receipt === 'accepted') {
+                        content = m.role === 'user'
+                            ? `${timeStr} [系统: ${uName}接收了你的转账${amtStr}]`
+                            : `${timeStr} [系统: 你接收了${uName}的转账${amtStr}]`;
+                    } else if (tMeta.receipt === 'returned') {
+                        content = m.role === 'user'
+                            ? `${timeStr} [系统: ${uName}退回了你的转账${amtStr}]`
+                            : `${timeStr} [系统: 你退回了${uName}的转账${amtStr}]`;
+                    } else {
+                        content = m.role === 'user'
+                            ? `${timeStr} [系统: ${uName}向你转账${amtStr}（待你处理，可收下或退回）]`
+                            : `${timeStr} [系统: 你向${uName}转账${amtStr}]`;
+                    }
+                }
                 else if (m.type === 'social_card') {
                     const post = m.metadata?.post || {};
                     // Look up this character's own Spark handles (sub-accounts) so the model can

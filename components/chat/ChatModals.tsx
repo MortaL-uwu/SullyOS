@@ -11,6 +11,8 @@ interface ChatModalsProps {
     // Data Props
     transferAmt: string;
     setTransferAmt: (v: string) => void;
+    transferNote: string;
+    setTransferNote: (v: string) => void;
     emojiImportText: string;
     setEmojiImportText: (v: string) => void;
     settingsContextLimit: number;
@@ -122,6 +124,7 @@ interface ChatModalsProps {
 const ChatModals: React.FC<ChatModalsProps> = ({
     modalType, setModalType,
     transferAmt, setTransferAmt,
+    transferNote, setTransferNote,
     emojiImportText, setEmojiImportText,
     settingsContextLimit, setSettingsContextLimit,
     settingsHideSysLogs, setSettingsHideSysLogs,
@@ -249,7 +252,10 @@ const ChatModals: React.FC<ChatModalsProps> = ({
             <Modal 
                 isOpen={modalType === 'transfer'} title="Credits 转账" onClose={() => setModalType('none')}
                 footer={<><button onClick={() => setModalType('none')} className="flex-1 py-3 bg-slate-100 rounded-2xl">取消</button><button onClick={onTransfer} className="flex-1 py-3 bg-orange-500 text-white rounded-2xl">确认</button></>}
-            ><input type="number" value={transferAmt} onChange={e => setTransferAmt(e.target.value)} className="w-full bg-slate-100 rounded-2xl px-5 py-4 text-lg font-bold" autoFocus /></Modal>
+            >
+                <input type="number" value={transferAmt} onChange={e => setTransferAmt(e.target.value)} placeholder="金额" className="w-full bg-slate-100 rounded-2xl px-5 py-4 text-lg font-bold" autoFocus />
+                <input type="text" value={transferNote} onChange={e => setTransferNote(e.target.value)} maxLength={30} placeholder="添加转账留言（选填）" className="w-full bg-slate-100 rounded-2xl px-5 py-3 text-sm mt-3" />
+            </Modal>
 
             {/* New Category Modal */}
             <Modal 

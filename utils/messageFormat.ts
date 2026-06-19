@@ -39,8 +39,13 @@ export function normalizeMessageContent(
     // 系统交互事件
     if (type === 'interaction') return `[系统: ${userName}戳了${charName}一下]`;
     if (type === 'transfer') {
-        const amt = msg.metadata?.amount;
-        return amt !== undefined ? `[系统: ${userName}转账 ${amt}]` : `[系统: ${userName}转账]`;
+        const meta = msg.metadata || {};
+        const amtStr = meta.amount !== undefined ? ` ${meta.amount}` : '';
+        const sender = msg.role === 'user' ? userName : charName;
+        const recipient = msg.role === 'user' ? charName : userName;
+        if (meta.receipt === 'accepted') return `[系统: ${sender}接收了${recipient}的转账${amtStr}]`;
+        if (meta.receipt === 'returned') return `[系统: ${sender}退回了${recipient}的转账${amtStr}]`;
+        return `[系统: ${sender}向${recipient}转账${amtStr}]`;
     }
 
     // 结算卡：几种 app 产生，用字段逐一翻成自然文本

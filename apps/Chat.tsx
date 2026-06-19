@@ -90,6 +90,7 @@ const Chat: React.FC = () => {
     const [isScheduleGenerating, setIsScheduleGenerating] = useState(false);
     const [allHistoryMessages, setAllHistoryMessages] = useState<Message[]>([]);
     const [transferAmt, setTransferAmt] = useState('');
+    const [transferNote, setTransferNote] = useState('');
     const [emojiImportText, setEmojiImportText] = useState('');
     const [settingsContextLimit, setSettingsContextLimit] = useState(500);
     const [settingsHideSysLogs, setSettingsHideSysLogs] = useState(false);
@@ -875,6 +876,24 @@ const Chat: React.FC = () => {
             triggerAI(messages, undefined, () => setInstantSendingActive(false));
         }
     };
+
+    // 用户点开「收到的转账」卡（角色发来、待处理）选择接收 / 退回：
+    // 标记原转账状态 + 补一张回执小卡（role=user，角色侧 prompt 会看到「用户接收/退回了你的转账」）。
+    const handleResolveTransfer = useCallback(async (msg: Message, action: 'accepted' | 'returned') => {
+        if (!char) return;
+        // 只处理仍待处理的转账，避免重复点击造成多张回执。
+        if (msg.metadata?.receipt) return;
+        if (msg.metadata?.status && msg.metadata.status !== 'pending') return;
+        await DB.updateMessageMetadata(msg.id, (prev) => ({ ...(prev || {}), status: action, resolvedAt: Date.now() }));
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'transfer',
+            content: action === 'accepted' ? '[已收款]' : '[已退回]',
+            metadata: { receipt: action, amount: msg.metadata?.amount, ref: msg.id },
+        });
+        await reloadMessages(visibleCountRef.current);
+    }, [char, reloadMessages]);
 
     // 顶栏 ⚡ 手动触发。instant 模式下给"上一条 assistant 之后的所有 user 消息"打上"准备中"
     // 三个点（从写入 DB 到 SSE POST 入队之间），由 onInstantPosted 清除 ——
@@ -2323,6 +2342,7 @@ const Chat: React.FC = () => {
              <ChatModals
                 modalType={modalType} setModalType={setModalType}
                 transferAmt={transferAmt} setTransferAmt={setTransferAmt}
+                transferNote={transferNote} setTransferNote={setTransferNote}
                 emojiImportText={emojiImportText} setEmojiImportText={setEmojiImportText}
                 settingsContextLimit={settingsContextLimit} setSettingsContextLimit={setSettingsContextLimit}
                 settingsHideSysLogs={settingsHideSysLogs} setSettingsHideSysLogs={setSettingsHideSysLogs}
@@ -2340,7 +2360,7 @@ const Chat: React.FC = () => {
                 newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={handleAddCategory}
                 selectedCategory={selectedCategory}
 
-                onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt }); setModalType('none'); }}
+                onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt, note: transferNote.trim() || undefined, status: 'pending' }); setTransferNote(''); setModalType('none'); }}
                 onImportEmoji={handleImportEmoji}
                 onSaveSettings={saveSettings} onBgUpload={handleBgUpload} onRemoveBg={() => updateCharacter(char.id, { chatBackground: undefined })}
                 onClearHistory={handleClearHistory} onArchive={handleFullArchive}
@@ -2623,6 +2643,7 @@ const Chat: React.FC = () => {
                             pendingIndicator={osTheme.chatPendingIndicator !== false}
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
+                            onResolveTransfer={handleResolveTransfer}
                             thinkingChainOptions={thinkingChainOptions}
                         />
                         </div>

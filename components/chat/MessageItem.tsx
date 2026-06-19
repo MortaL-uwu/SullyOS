@@ -323,6 +323,172 @@ const ForwardCard: React.FC<{
 };
 
 // ============================================================
+// 转账卡片：点开看精美详情，可接收 / 退回；回执则渲染成小卡
+// ============================================================
+
+type TransferStatus = 'pending' | 'accepted' | 'returned';
+
+const SullyPayMark: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
+        <path d="M12 7.5a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5Z" />
+        <path fillRule="evenodd" d="M1.5 4.875C1.5 3.839 2.34 3 3.375 3h17.25c1.035 0 1.875.84 1.875 1.875v9.75c0 1.036-.84 1.875-1.875 1.875H3.375A1.875 1.875 0 0 1 1.5 14.625v-9.75ZM8.25 9.75a3.75 3.75 0 1 1 7.5 0 3.75 3.75 0 0 1-7.5 0ZM18.75 9a.75.75 0 0 0-.75.75v.008c0 .414.336.75.75.75h.008a.75.75 0 0 0 .75-.75V9.75a.75.75 0 0 0-.75-.75h-.008ZM4.5 9.75A.75.75 0 0 1 5.25 9h.008a.75.75 0 0 1 .75.75v.008a.75.75 0 0 1-.75.75H5.25a.75.75 0 0 1-.75-.75V9.75Z" clipRule="evenodd" />
+        <path d="M2.25 18a.75.75 0 0 0 0 1.5c5.4 0 10.63.722 15.6 2.075 1.19.324 2.4-.558 2.4-1.82V18.75a.75.75 0 0 0-.75-.75H2.25Z" />
+    </svg>
+);
+
+const TransferCard: React.FC<{
+    m: Message;
+    isUser: boolean;
+    charName: string;
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+    selectionMode: boolean;
+    onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
+}> = ({ m, isUser, charName, commonLayout, selectionMode, onResolveTransfer }) => {
+    const [open, setOpen] = useState(false);
+    const meta = m.metadata || {};
+    const amount = meta.amount;
+    const note: string | undefined = meta.note;
+    const receipt: 'accepted' | 'returned' | undefined = meta.receipt;
+    const status: TransferStatus = (meta.status as TransferStatus) || 'pending';
+
+    const actor = isUser ? '你' : charName;
+    const counterparty = isUser ? charName : '你';
+
+    // ---- 回执小卡：接收 / 退回的轻量结算条 ----
+    if (receipt) {
+        const accepted = receipt === 'accepted';
+        return commonLayout(
+            <div className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl shadow-sm border w-fit max-w-[240px] ${
+                accepted
+                    ? 'bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-100'
+                    : 'bg-gradient-to-br from-slate-50 to-slate-100 border-slate-200'
+            }`}>
+                <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${accepted ? 'bg-emerald-400/90 text-white' : 'bg-slate-300/90 text-white'}`}>
+                    {accepted ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={3} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeWidth={2.5} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" /></svg>
+                    )}
+                </div>
+                <div className="min-w-0">
+                    <div className={`text-xs font-semibold ${accepted ? 'text-emerald-700' : 'text-slate-600'}`}>
+                        {actor}{accepted ? '已收款' : '退回了转账'}
+                    </div>
+                    {amount !== undefined && (
+                        <div className="text-[10px] text-slate-400">₩ {amount}</div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ---- 主转账卡（可点开）----
+    const resolved = status !== 'pending';
+    // 用户是「收到方」才出现接收/退回入口：即这条是角色发来的、且仍待处理。
+    const canResolve = !isUser && !resolved && !!onResolveTransfer;
+
+    const statusBadge = status === 'accepted' ? '已收款' : status === 'returned' ? '已退还' : '';
+
+    const handleResolve = (action: 'accepted' | 'returned') => {
+        onResolveTransfer?.(m, action);
+        setOpen(false);
+    };
+
+    return (
+        <>
+            {commonLayout(
+                <div
+                    onClick={(e) => { if (selectionMode) return; e.stopPropagation(); setOpen(true); }}
+                    className={`w-64 rounded-2xl p-4 text-white shadow-lg relative overflow-hidden cursor-pointer active:scale-[0.98] transition-transform ${
+                        resolved ? 'bg-gradient-to-br from-amber-300/80 to-orange-400/80' : 'bg-gradient-to-br from-amber-400 to-orange-500'
+                    }`}
+                >
+                    <div className="absolute top-0 right-0 p-4 opacity-20"><SullyPayMark className="w-12 h-12" /></div>
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-white/20 rounded-full"><SullyPayMark className="w-5 h-5" /></div>
+                        <span className="font-medium text-white/90">Sully Pay</span>
+                    </div>
+                    <div className="text-2xl font-bold tracking-tight mb-1">₩ {amount}</div>
+                    {note ? (
+                        <div className="text-[11px] text-white/80 truncate mb-0.5">{note}</div>
+                    ) : null}
+                    <div className="flex items-center justify-between">
+                        <div className="text-[10px] text-white/70">转账给{counterparty}</div>
+                        {statusBadge && (
+                            <span className="text-[9px] bg-white/25 backdrop-blur-sm px-1.5 py-0.5 rounded-full">{statusBadge}</span>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {open && (
+                <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in" onClick={(e) => { e.stopPropagation(); setOpen(false); }}>
+                    <div
+                        className="w-full max-w-[320px] bg-white rounded-3xl overflow-hidden shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* 顶部金额区 */}
+                        <div className="bg-gradient-to-br from-amber-400 to-orange-500 px-6 pt-7 pb-8 text-white relative overflow-hidden">
+                            <div className="absolute -top-4 -right-4 opacity-15"><SullyPayMark className="w-28 h-28" /></div>
+                            <div className="flex items-center gap-2 mb-5">
+                                <div className="p-1.5 bg-white/20 rounded-full"><SullyPayMark className="w-4 h-4" /></div>
+                                <span className="text-sm font-medium text-white/90">Sully Pay 转账</span>
+                            </div>
+                            <div className="text-[11px] text-white/70 mb-1">{isUser ? `你向${charName}转账` : `${charName}向你转账`}</div>
+                            <div className="text-4xl font-bold tracking-tight">₩ {amount}</div>
+                        </div>
+
+                        {/* 详情区 */}
+                        <div className="px-6 py-5 space-y-3.5">
+                            {note && (
+                                <div className="bg-slate-50 rounded-xl px-3.5 py-2.5">
+                                    <div className="text-[10px] text-slate-400 mb-0.5">转账留言</div>
+                                    <div className="text-sm text-slate-700 break-words">{note}</div>
+                                </div>
+                            )}
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-400">付款方</span>
+                                <span className="text-slate-700 font-medium">{isUser ? '你' : charName}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-400">收款方</span>
+                                <span className="text-slate-700 font-medium">{isUser ? charName : '你'}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-400">状态</span>
+                                <span className={`font-medium ${
+                                    status === 'accepted' ? 'text-emerald-600' : status === 'returned' ? 'text-slate-500' : 'text-amber-600'
+                                }`}>
+                                    {status === 'accepted' ? '已收款' : status === 'returned' ? '已退还' : '等待对方处理'}
+                                </span>
+                            </div>
+
+                            {canResolve ? (
+                                <div className="flex gap-3 pt-2">
+                                    <button
+                                        onClick={() => handleResolve('returned')}
+                                        className="flex-1 py-2.5 rounded-xl text-sm font-medium text-slate-500 bg-slate-100 active:scale-95 transition-transform"
+                                    >退回</button>
+                                    <button
+                                        onClick={() => handleResolve('accepted')}
+                                        className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-amber-400 to-orange-500 shadow-md active:scale-95 transition-transform"
+                                    >接收</button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => setOpen(false)}
+                                    className="w-full py-2.5 rounded-xl text-sm font-medium text-slate-500 bg-slate-100 active:scale-95 transition-transform mt-1"
+                                >关闭</button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+
+// ============================================================
 // Like520 卡片：520 限定典藏，展开后看完整合照 + 信
 // ============================================================
 
@@ -681,6 +847,8 @@ interface MessageItemProps {
     /** 瑞幸菜单卡 (与麦当劳同构) */
     onLuckinSendCart?: (items: import('./LuckinCard').LuckinCartItem[]) => void;
     onLuckinCandidate?: (item: import('./LuckinCard').LuckinCartItem) => void;
+    /** 用户点「收到的转账」卡 → 接收 / 退回 */
+    onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
     /** 思考链卡片视觉与交互 */
     thinkingChainOptions?: {
         styleId?: ThinkingChainStyleId;
@@ -722,6 +890,7 @@ const MessageItem = React.memo(({
     onMcdCandidate,
     onLuckinSendCart,
     onLuckinCandidate,
+    onResolveTransfer,
     thinkingChainOptions,
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
@@ -2035,17 +2204,7 @@ const MessageItem = React.memo(({
     }
 
     if (m.type === 'transfer') {
-        return commonLayout(
-            <div className="w-64 bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl p-4 text-white shadow-lg relative overflow-hidden group active:scale-[0.98] transition-transform">
-                    <div className="absolute top-0 right-0 p-4 opacity-20"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-12 h-12"><path d="M10.464 8.746c.227-.18.497-.311.786-.394v2.795a2.252 2.252 0 0 1-.786-.393c-.394-.313-.546-.681-.546-1.004 0-.324.152-.691.546-1.004ZM12.75 15.662v-2.824c.347.085.664.228.921.421.427.32.579.686.579.991 0 .305-.152.671-.579.991a2.534 2.534 0 0 1-.921.42Z" /><path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25ZM12.75 6a.75.75 0 0 0-1.5 0v.816a3.836 3.836 0 0 0-1.72.756c-.712.566-1.112 1.35-1.112 2.178 0 .829.4 1.612 1.113 2.178.502.4 1.102.647 1.719.756v2.978a2.536 2.536 0 0 1-.921-.421l-.879-.66a.75.75 0 0 0-.9 1.2l.879.66c.533.4 1.169.645 1.821.75V18a.75.75 0 0 0 1.5 0v-.81a4.124 4.124 0 0 0 1.821-.749c.745-.559 1.179-1.344 1.179-2.191 0-.847-.434-1.632-1.179-2.191a4.122 4.122 0 0 0-1.821-.75V8.354c.29.082.559.213.786.393l.415.33a.75.75 0 0 0 .933-1.175l-.415-.33a3.836 3.836 0 0 0-1.719-.755V6Z" clipRule="evenodd" /><path d="M2.25 18a.75.75 0 0 0 0 1.5c5.4 0 10.63.722 15.6 2.075 1.19.324 2.4-.558 2.4-1.82V18.75a.75.75 0 0 0-.75-.75H2.25Z" /></svg></div>
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-white/20 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M12 7.5a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5Z" /><path fillRule="evenodd" d="M1.5 4.875C1.5 3.839 2.34 3 3.375 3h17.25c1.035 0 1.875.84 1.875 1.875v9.75c0 1.036-.84 1.875-1.875 1.875H3.375A1.875 1.875 0 0 1 1.5 14.625v-9.75ZM8.25 9.75a3.75 3.75 0 1 1 7.5 0 3.75 3.75 0 0 1-7.5 0ZM18.75 9a.75.75 0 0 0-.75.75v.008c0 .414.336.75.75.75h.008a.75.75 0 0 0 .75-.75V9.75a.75.75 0 0 0-.75-.75h-.008ZM4.5 9.75A.75.75 0 0 1 5.25 9h.008a.75.75 0 0 1 .75.75v.008a.75.75 0 0 1-.75-.75H5.25a.75.75 0 0 1-.75-.75V9.75Z" clipRule="evenodd" /><path d="M2.25 18a.75.75 0 0 0 0 1.5c5.4 0 10.63.722 15.6 2.075 1.19.324 2.4-.558 2.4-1.82V18.75a.75.75 0 0 0-.75-.75H2.25Z" /></svg></div>
-                        <span className="font-medium text-white/90">Sully Pay</span>
-                    </div>
-                    <div className="text-2xl font-bold tracking-tight mb-1">₩ {m.metadata?.amount}</div>
-                    <div className="text-[10px] text-white/70">转账给{isUser ? charName : '你'}</div>
-            </div>
-        );
+        return <TransferCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveTransfer={onResolveTransfer} />;
     }
 
     if (m.type === 'emoji') {
