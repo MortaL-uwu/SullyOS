@@ -8,7 +8,7 @@ let cachedBottomInset: number | null = null;
 
 // 用一个隐藏探针同时读取上下安全区：单次插入 + 单次 getComputedStyle（一次 reflow）。
 // env() 在本项目 iOS 全屏 PWA 下偶发返回 0，故需 JS 探测兜底。
-const readSafeAreaInsets = (): { top: number; bottom: number } => {
+export const readSafeAreaInsets = (): { top: number; bottom: number } => {
     if (typeof document === 'undefined' || !document.body) {
         return { top: cachedTopInset ?? 0, bottom: cachedBottomInset ?? 0 };
     }
