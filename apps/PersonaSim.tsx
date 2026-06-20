@@ -128,7 +128,7 @@ export async function generatePersonaScript(opts: {
     const res = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-        body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'user', content: prompt }], temperature: 0.95, max_tokens: 16000 }),
+        body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'user', content: prompt }], temperature: 0.98, max_tokens: 24000 }),
     });
     if (!res.ok) throw new Error('API');
     const data = await safeResponseJson(res);
@@ -1001,7 +1001,7 @@ function buildMemoryText(s: SimScript): string {
         }
     }
     let text = lines.join('\n');
-    if (text.length > 1800) text = text.slice(0, 1800) + '…';
+    if (text.length > 3200) text = text.slice(0, 3200) + '…';
     return text;
 }
 
@@ -1092,13 +1092,22 @@ ${buildVariation()}
    - 如果该角色的设定/世界观里根本没有「拍照片 / 现代时间感 / 可追溯的过去」，或任何闪回都会显得突兀 OOC，就**完全不要**加 flashback beat。
    - ${mode === 'event' ? '事件模拟下，若合理，优先安排一次闪回来强化情绪；若不合理则跳过。' : '日常模拟下，仅在某个安静且合理的时刻择机插入，可有可无。'}
 
+【下猛料 · 密度 / 强度 / 具体度（这一段优先级最高，别给我收着）】
+- **要长、要满**：这是一场完整演出，不是预告片。beats 给足 **40~64 个**，疏密有致但总量宁多勿少。
+- **每一步都有戏**：绝大多数 beat 都带 monologue；独白可以接连成串——一个动作配 2~3 个跳跃、互相打架的念头，让脑子真的"在转"。
+- **往死里具体**：用真实的名字、店名、歌名、金额、时间、对话原话、搜索词。**拒绝**「某人 / 某件事 / 一条消息 / 一首歌」这种含糊占位，每个细节都要像真有其事，能拼出一个活人。
+- **数字行为往狠里堆**：compose 的「打了又删」至少 2~3 次且每次草稿不同、search 的「搜了又删」至少一串 3~4 条层层递进（越搜越露底）、再穿插消息撤回 / 反复开同一页 / 已读不回 / 对方"正在输入…"又停了。
+- **高潮要够长够窒息**：把关键节点拉成 **8~12 个连续 beat**（开→关→重开→停顿→锁屏→再开→输入→删→输入→删→…→最终发送或最终没发），全程 pace=3，把"手指悬在发送键上"的劲儿磨出来。
+- **环境碎片撒厚**：购物车里躺着什么、半年前的待办写了什么、浏览器开着哪些标签、相册某张图是哪天——具体到刺人。
+- **敢于不体面**：真实的人会走神、会反复确认、会自欺、会因一件小事突然破防。别替 TA 美化、克制成一张白纸——该狼狈就狼狈，该上头就上头。
+
 【输出格式】严格输出**一个 JSON 对象**（不要任何额外文字、不要 markdown 代码块），结构如下：
 {
   "title": "演出标题（如：普通的周二）",
   "ending": "可选，这次的结局版本标签（如：最终没有发送）",
   "summary": "1-2 句收尾，客观留白，不解释",
   "buff": { "name": "英文key", "label": "中文情绪标签(4-8字)", "emoji": "1个emoji", "color": "#hex", "intensity": 1|2|3, "description": "一句给AI看的情绪底色" },
-  "beats": [ ... 20~36 个 beat ... ]
+  "beats": [ ... 40~64 个 beat，宁多勿少 ... ]
 }
 
 每个 beat 是一个对象，必含 "kind"，按需含 "time"(HH:MM)、"monologue"、"pace"(1普通/2稍慢/3高潮)、"vibe"。
@@ -1124,7 +1133,7 @@ kind 取值与字段：
 - {"kind":"flashback","time":"15:00","flashback":{"label":"三个月前的今天","caption":"...","date":"...","tint":"#4a3a5a"},"monologue":""}  // 记忆闪回(可选)，label=自洽的时间口径，monologue留空=沉默
 - {"kind":"end","time":"23:40"}  // 最后一个 beat 必须是 end
 
-请严格贴合上面的【本场变奏】（切入/跨度/结构/主导表达/情绪/锚点都要落地），并确保 beats 有节奏起伏、至少一处 compose 或 search 的“打字/删除”行为、至少一处环境碎片、一处情绪高潮(pace=3 的连续 beats)。直接输出 JSON 对象。`;
+请严格贴合上面的【本场变奏】，并把【下猛料】那段吃透：beats 给足 40~64 个、独白密集、细节具体、数字行为反复、高潮拉长。直接输出 JSON 对象，别偷工减料。`;
 }
 
 function parseScript(raw: string): SimScript | null {
