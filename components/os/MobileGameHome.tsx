@@ -134,8 +134,8 @@ const MobileGameHome: React.FC = () => {
 
     return (
         <div
-            className="h-full w-full relative z-10 overflow-hidden font-sans select-none"
-            style={{ color: '#ffffff' }}
+            className="h-full w-full relative z-10 overflow-hidden select-none"
+            style={{ color: '#ffffff', fontFamily: `'Nunito','Noto Sans SC',sans-serif` }}
         >
             {/* 压暗 / 染色层：保证文字在任意壁纸上可读，并统一紫粉氛围 */}
             <div className="absolute inset-0 pointer-events-none"
@@ -208,89 +208,89 @@ const MobileGameHome: React.FC = () => {
                     </div>
                 </div>
 
-                {/* ===== 时钟 ===== */}
-                <div className="flex items-end justify-between mt-5 animate-fade-in">
-                    <div>
-                        <div className="text-[5.5rem] leading-[0.8] font-black tracking-tighter drop-shadow-2xl"
-                            style={{ fontFamily: `'Space Grotesk','SF Pro Display',sans-serif`, fontFeatureSettings: '"tnum"' }}>
-                            {hh}<span className="opacity-50 animate-pulse mx-0.5">:</span>{mm}
+                {/* ===== 左栏：时钟 + 公告 + 快捷入口（约占 2/3 宽，右侧留白给壁纸立绘）===== */}
+                <div className="w-[66%] min-w-[228px] mt-5">
+                    {/* 时钟 */}
+                    <div className="flex items-start gap-2 animate-fade-in">
+                        <div className="min-w-0">
+                            <div className="text-[3.9rem] leading-[0.85] font-normal drop-shadow-2xl"
+                                style={{ fontFamily: `'DM Serif Display',serif`, fontFeatureSettings: '"tnum"' }}>
+                                {hh}<span className="opacity-45 animate-pulse mx-0.5" style={{ color: '#f0abfc' }}>:</span>{mm}
+                            </div>
+                            <div className="text-[1.7rem] -mt-1 leading-none"
+                                style={{ fontFamily: `'Caveat',cursive`, fontWeight: 700, color: '#f0abfc', textShadow: '0 0 14px rgba(240,171,252,0.55)' }}>
+                                {greeting}
+                            </div>
                         </div>
-                        <div className="text-[1.4rem] -mt-1 font-semibold italic"
-                            style={{ fontFamily: `'Brush Script MT','Segoe Script',cursive`, color: '#f0abfc', textShadow: '0 0 12px rgba(240,171,252,0.5)' }}>
-                            {greeting}
+                        <div className="text-right pt-1 shrink-0">
+                            <div className="text-[10px] font-bold tracking-[0.18em] opacity-85">{dayName}</div>
+                            <div className="text-[2.1rem] leading-none font-normal" style={{ fontFamily: `'DM Serif Display',serif` }}>{dateNum}</div>
+                            <div className="text-[10px] font-bold tracking-[0.2em] opacity-70">{monthName}</div>
                         </div>
                     </div>
-                    <div className="text-right pb-2">
-                        <div className="text-[11px] font-bold tracking-[0.18em] opacity-85">{dayName}</div>
-                        <div className="text-[2.6rem] leading-none font-black" style={{ fontFamily: `'Space Grotesk',sans-serif` }}>{dateNum}</div>
-                        <div className="text-[11px] font-bold tracking-[0.2em] opacity-70">{monthName}</div>
+
+                    {/* 最新公告 */}
+                    <button onClick={() => openApp(AppID.HotNews)}
+                        className="w-full text-left mt-4 rounded-2xl p-3.5 flex items-center gap-2.5 active:scale-[0.99] transition-transform animate-fade-in"
+                        style={{ background: cardBg, border: cardBorder, boxShadow: cardShadow, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                                <span className="text-[#67e8f9] text-xs">✦</span>
+                                <span className="text-[12.5px]" style={{ fontWeight: 900 }}>最新公告</span>
+                                <span className="px-1.5 py-px rounded text-[8px] font-black tracking-wider"
+                                    style={{ background: 'linear-gradient(135deg,#f472b6,#fb7185)', color: '#fff' }}>NEW</span>
+                            </div>
+                            <p className="text-[10.5px] leading-relaxed opacity-80 line-clamp-2">{announcement}</p>
+                        </div>
+                        {/* 公告缩略图（角色立绘）*/}
+                        <div className="w-12 h-12 shrink-0 rounded-xl overflow-hidden"
+                            style={{ border: '1px solid rgba(214,188,255,0.35)', boxShadow: '0 3px 10px rgba(20,6,46,0.35)' }}>
+                            {widgetChar?.avatar
+                                ? <img src={widgetChar.avatar} className="w-full h-full object-cover" alt="" loading="lazy" />
+                                : <div className="w-full h-full flex items-center justify-center text-base" style={{ background: 'rgba(255,255,255,0.08)' }}>✦</div>}
+                        </div>
+                        <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 opacity-60" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                    </button>
+
+                    {/* 快捷入口 */}
+                    <div className="mt-3 rounded-2xl p-3.5 animate-fade-in"
+                        style={{ background: cardBg, border: cardBorder, boxShadow: cardShadow, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
+                        <div className="flex items-center gap-1.5 mb-3">
+                            <span className="text-[#f0abfc] text-xs">✦</span>
+                            <span className="text-[12.5px]" style={{ fontWeight: 900 }}>快捷入口</span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-1.5">
+                            {QUICK_ENTRIES.map(e => (
+                                <button key={e.id} onClick={() => openApp(e.id)}
+                                    className="flex flex-col items-center gap-1.5 active:scale-90 transition-transform">
+                                    <div className="w-11 h-11 rounded-full flex items-center justify-center"
+                                        style={{ background: 'radial-gradient(circle at 30% 25%, rgba(192,132,252,0.6), rgba(76,40,120,0.55))', border: '1px solid rgba(214,188,255,0.4)', boxShadow: '0 4px 14px rgba(60,20,100,0.4), inset 0 1px 1px rgba(255,255,255,0.2)' }}>
+                                        <div className="w-[22px] h-[22px]" style={{ color: '#f3e8ff' }}>{renderGlyph(INSTALLED_APPS.find(a => a.id === e.id)?.icon || 'Settings', 'w-full h-full')}</div>
+                                    </div>
+                                    <span className="text-[9.5px] font-bold opacity-90">{e.cn}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
-                {/* ===== 最新公告 ===== */}
-                <button onClick={() => openApp(AppID.HotNews)}
-                    className="w-full text-left mt-5 rounded-2xl p-4 flex items-center gap-3 active:scale-[0.99] transition-transform animate-fade-in"
-                    style={{ background: cardBg, border: cardBorder, boxShadow: cardShadow, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
-                    <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                            <span className="text-[#67e8f9]">✦</span>
-                            <span className="text-[13px] font-extrabold">最新公告</span>
-                            <span className="px-1.5 py-px rounded text-[8px] font-black tracking-wider"
-                                style={{ background: 'linear-gradient(135deg,#f472b6,#fb7185)', color: '#fff' }}>NEW</span>
-                        </div>
-                        <p className="text-[11px] leading-relaxed opacity-80 line-clamp-2">{announcement}</p>
-                    </div>
-                    {/* 公告缩略图（角色立绘）*/}
-                    <div className="w-14 h-14 shrink-0 rounded-xl overflow-hidden"
-                        style={{ border: '1px solid rgba(214,188,255,0.35)', boxShadow: '0 3px 10px rgba(20,6,46,0.35)' }}>
-                        {widgetChar?.avatar
-                            ? <img src={widgetChar.avatar} className="w-full h-full object-cover" alt="" loading="lazy" />
-                            : <div className="w-full h-full flex items-center justify-center text-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>✦</div>}
-                    </div>
-                    <div className="w-7 h-7 shrink-0 rounded-full flex items-center justify-center"
-                        style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)' }}>
-                        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-                    </div>
-                </button>
-
-                {/* ===== 快捷入口 ===== */}
-                <div className="mt-4 rounded-2xl p-4 animate-fade-in"
-                    style={{ background: cardBg, border: cardBorder, boxShadow: cardShadow, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
-                    <div className="flex items-center gap-1.5 mb-3">
-                        <span className="text-[#f0abfc]">✦</span>
-                        <span className="text-[13px] font-extrabold">快捷入口</span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-2">
-                        {QUICK_ENTRIES.map(e => (
-                            <button key={e.id} onClick={() => openApp(e.id)}
-                                className="flex flex-col items-center gap-1.5 active:scale-90 transition-transform">
-                                <div className="w-12 h-12 rounded-full flex items-center justify-center"
-                                    style={{ background: 'radial-gradient(circle at 30% 25%, rgba(167,139,250,0.55), rgba(76,40,120,0.6))', border: '1px solid rgba(214,188,255,0.4)', boxShadow: '0 4px 14px rgba(60,20,100,0.4)' }}>
-                                    <div className="w-6 h-6 text-white">{renderGlyph(INSTALLED_APPS.find(a => a.id === e.id)?.icon || 'Settings', 'w-full h-full')}</div>
-                                </div>
-                                <span className="text-[10px] font-bold opacity-90">{e.cn}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* ===== App 网格卡 ===== */}
-                <div className="grid grid-cols-2 gap-3 mt-4">
+                {/* ===== App 网格卡（全宽 2 列）===== */}
+                <div className="grid grid-cols-2 gap-3 mt-5">
                     {GRID_CARDS.map(card => (
                         <button key={card.id} onClick={() => openApp(card.id)}
-                            className="relative h-28 rounded-2xl p-3.5 flex flex-col text-left overflow-hidden active:scale-[0.97] transition-transform animate-fade-in"
+                            className="relative h-[6.5rem] rounded-2xl p-4 flex flex-col justify-center text-left overflow-hidden active:scale-[0.97] transition-transform animate-fade-in"
                             style={{ background: cardBg, border: cardBorder, boxShadow: cardShadow, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
-                            {/* 角落星标装饰 */}
-                            <span className="absolute top-1.5 left-2 text-[10px] leading-none text-[#67e8f9] opacity-70">✦</span>
-                            <span className="absolute top-1.5 right-2 text-[10px] leading-none text-[#f0abfc] opacity-70">✦</span>
-                            <span className="absolute bottom-1.5 left-2 text-[8px] leading-none text-white opacity-30">✦</span>
-                            {/* 大插画（应用图标，半透明铺在右下）*/}
-                            <div className="absolute right-1.5 bottom-1 w-[5.5rem] h-[5.5rem] opacity-40 -rotate-6 text-white pointer-events-none drop-shadow-[0_4px_10px_rgba(0,0,0,0.3)]">
+                            {/* 角落星标装饰（克制）*/}
+                            <span className="absolute top-2 left-2.5 text-[9px] leading-none text-[#67e8f9] opacity-50">✦</span>
+                            <span className="absolute top-2 right-2.5 text-[9px] leading-none text-[#f0abfc] opacity-50">✦</span>
+                            {/* 应用图标：正立、上色、带光晕，右侧居中 */}
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 w-[3.75rem] h-[3.75rem] pointer-events-none"
+                                style={{ color: '#e9d5ff', opacity: 0.92, filter: 'drop-shadow(0 0 10px rgba(192,132,252,0.55))' }}>
                                 {renderGlyph(INSTALLED_APPS.find(a => a.id === card.id)?.icon || 'Settings', 'w-full h-full')}
                             </div>
                             {/* 文字 */}
-                            <div className="relative mt-0.5">
-                                <div className="text-[18px] font-black drop-shadow leading-tight">{card.cn}</div>
+                            <div className="relative">
+                                <div className="text-[19px] leading-tight drop-shadow" style={{ fontWeight: 900 }}>{card.cn}</div>
                                 <div className="text-[9px] font-bold tracking-[0.25em] opacity-55 mt-1">{card.en}</div>
                             </div>
                         </button>
@@ -309,10 +309,11 @@ const MobileGameHome: React.FC = () => {
                     <button onClick={() => setDrawerOpen(true)} aria-label="全部应用"
                         className="-mt-7 w-16 h-16 rounded-full flex items-center justify-center active:scale-95 transition-transform shrink-0"
                         style={{ background: 'linear-gradient(135deg,#f0abfc,#818cf8,#67e8f9)', boxShadow: '0 6px 22px rgba(129,140,248,0.6), inset 0 2px 6px rgba(255,255,255,0.4)' }}>
-                        <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'rgba(28,12,52,0.45)' }}>
-                            <svg viewBox="0 0 24 24" className="w-7 h-7" fill="#fff">
-                                <path d="M12 2l2 7 7-2-5 5 5 5-7-2-2 7-2-7-7 2 5-5-5-5 7 2z" opacity="0.95" />
-                                <circle cx="12" cy="12" r="2" fill="#67e8f9" />
+                        <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'rgba(28,12,52,0.5)' }}>
+                            <svg viewBox="0 0 24 24" className="w-7 h-7">
+                                {/* 四角指南星（罗盘）*/}
+                                <path d="M12 1.5 L13.7 10.3 L22.5 12 L13.7 13.7 L12 22.5 L10.3 13.7 L1.5 12 L10.3 10.3 Z" fill="#fff" />
+                                <path d="M12 6 L12.9 11.1 L18 12 L12.9 12.9 L12 18 L11.1 12.9 L6 12 L11.1 11.1 Z" fill="#67e8f9" />
                             </svg>
                         </div>
                     </button>
