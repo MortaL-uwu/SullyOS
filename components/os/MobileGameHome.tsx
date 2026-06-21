@@ -5,6 +5,7 @@ import { AppID, CharacterProfile } from '../../types';
 import { DB } from '../../utils/db';
 import AppIcon from './AppIcon';
 import { getMobileGameArt } from './mobilegameArt';
+import { getChibi } from '../../utils/vrWorld/chibi';
 import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../../utils/devDebug';
 
 // ===== 手游主题（mobilegame skin）=====
@@ -100,6 +101,18 @@ const StarBurst: React.FC<{ className?: string; fill?: string }> = ({ className,
     </svg>
 );
 
+// 时钟卡里的城市 / 小房子剪影（含尖顶房子 + 塔尖 + 暖窗）
+const CityScape: React.FC = () => (
+    <svg viewBox="0 0 240 70" preserveAspectRatio="none" className="absolute bottom-0 left-0 w-full h-[4.6rem] pointer-events-none">
+        <defs><linearGradient id="mg-city" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#cdb8e6" stopOpacity="0.55" /><stop offset="1" stopColor="#c2a9df" stopOpacity="0.32" /></linearGradient></defs>
+        <path d="M0 70 L0 46 L16 46 L16 34 L28 34 L28 46 L34 46 L34 24 L42 16 L50 24 L50 46 L58 46 L58 38 L72 38 L72 46 L80 46 L80 26 L90 26 L90 18 L96 18 L96 46 L108 46 L108 40 L122 40 L122 46 L130 46 L130 30 L142 22 L154 30 L154 46 L164 46 L164 36 L178 36 L178 46 L186 46 L186 24 L196 24 L196 46 L206 46 L206 38 L224 38 L224 32 L240 32 L240 70 Z" fill="url(#mg-city)" />
+        {/* 暖窗小点 */}
+        {[[20, 40], [40, 30], [86, 32], [92, 24], [136, 34], [170, 42], [190, 32], [214, 44]].map(([x, y], i) => (
+            <rect key={i} x={x} y={y} width="2.4" height="3" rx="0.6" fill="#fff" opacity="0.5" />
+        ))}
+    </svg>
+);
+
 // 居中分节标题（两侧发丝线 + 星芒）
 const SectionLabel: React.FC<{ cn: string; en: string }> = ({ cn, en }) => (
     <div className="flex items-center gap-2.5 mt-7 mb-4">
@@ -175,6 +188,8 @@ const MobileGameHome: React.FC = () => {
     const tagline = (widgetChar?.description || '不知名种草姬').slice(0, 36);
     const announcement = lastMessage || widgetChar?.description || '一切如常，等待新的故事发生。';
     const expPct = Math.min(100, Math.round((stats.exp / stats.expMax) * 100));
+    // 时钟卡角色：优先彼方 chibi 小贴纸（透明立绘），没有就头像融合
+    const chibi = widgetChar ? getChibi(widgetChar) : null;
 
     const drawerApps = useMemo(
         () => INSTALLED_APPS.filter(a => a.id !== AppID.CharCreatorDev || devDebugVisible),
@@ -270,8 +285,13 @@ const MobileGameHome: React.FC = () => {
                     {/* 梦幻天空底 */}
                     <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #cfe0f7 0%, #e4d9f3 42%, #f3d9ec 72%, #f7d2e2 100%)' }} />
                     <div className="absolute inset-0" style={{ background: 'radial-gradient(80% 60% at 50% 18%, rgba(255,255,255,0.5), transparent 70%)' }} />
-                    {/* 远景剪影（城市 / 朦胧）*/}
-                    <div className="absolute bottom-0 left-0 right-0 h-16" style={{ background: 'linear-gradient(180deg, transparent, rgba(180,160,220,0.28))' }} />
+                    {/* 云朵 */}
+                    <div className="absolute top-6 left-5 w-20 h-8 rounded-full" style={{ background: 'rgba(255,255,255,0.55)', filter: 'blur(7px)' }} />
+                    <div className="absolute top-12 right-10 w-24 h-9 rounded-full" style={{ background: 'rgba(255,255,255,0.45)', filter: 'blur(8px)' }} />
+                    {/* 城市 / 小房子剪影 */}
+                    <CityScape />
+                    {/* 流星 */}
+                    <div className="absolute top-5 left-6 w-16 h-[2px] rotate-[28deg] origin-left" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.85))' }} />
                     {/* 星芒 */}
                     <Sparkles items={[[12, 22, 16, '#fff', 0.95], [22, 50, 10, '#fff', 0.8], [40, 16, 12, '#fff', 0.85], [86, 26, 14, '#fff', 0.9], [70, 60, 9, PAL.pink, 0.8], [50, 78, 8, '#fff', 0.7]]} />
 
@@ -297,17 +317,24 @@ const MobileGameHome: React.FC = () => {
                         <span className="text-[12px]" style={{ color: PAL.pink }}>✦</span>
                     </div>
 
-                    {/* 角色立绘贴纸（右下，羽化融入卡片）*/}
-                    {widgetChar?.avatar && (
-                        <div className="absolute right-0 bottom-0 w-36 h-36 pointer-events-none"
+                    {/* 角色：有彼方 chibi → 小贴纸；否则头像电影感融合（参考日常表/攻略本）*/}
+                    {chibi?.img && (chibi.isFallback ? (
+                        <div className="absolute right-0 top-0 bottom-0 w-[58%] pointer-events-none"
                             style={{
-                                WebkitMaskImage: 'radial-gradient(70% 70% at 58% 42%, #000 52%, transparent 80%)',
-                                maskImage: 'radial-gradient(70% 70% at 58% 42%, #000 52%, transparent 80%)',
-                                filter: 'drop-shadow(0 4px 10px rgba(150,120,200,0.35))',
+                                WebkitMaskImage: 'linear-gradient(102deg, transparent 6%, #000 50%)',
+                                maskImage: 'linear-gradient(102deg, transparent 6%, #000 50%)',
                             }}>
-                            <img src={widgetChar.avatar} className="w-full h-full object-cover" alt="" loading="lazy" />
+                            <img src={chibi.img} className="w-full h-full object-cover" alt="" loading="lazy" style={{ objectPosition: 'center 22%' }} />
                         </div>
-                    )}
+                    ) : (
+                        <img src={chibi.img} alt="" loading="lazy"
+                            className="absolute right-1 bottom-0 object-contain pointer-events-none"
+                            style={{
+                                height: `${11 * (chibi.scale || 1)}rem`,
+                                transform: `scaleX(${chibi.flip ? -1 : 1}) translateY(${chibi.offsetY || 0}px)`,
+                                filter: 'drop-shadow(0 5px 10px rgba(120,90,170,0.45))',
+                            }} />
+                    ))}
                 </div>
 
                 {/* ===== 最新公告 ===== */}
