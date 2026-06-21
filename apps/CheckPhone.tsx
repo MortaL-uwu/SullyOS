@@ -34,12 +34,14 @@ const APP_LAYOUTS: { id: LayoutId; name: string; desc: string; icon: string }[] 
 const StatusStrip: React.FC = () => {
     const clock = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     return (
-        <div className="h-9 flex justify-between px-6 items-center z-30 relative pt-2 text-white/70 shrink-0">
+        <div className="shrink-0" style={{ paddingTop: 'var(--safe-top)' }}>
+            <div className="h-9 flex justify-between px-6 items-center z-30 relative pt-2 text-white/70">
             <span className="text-[12px] font-semibold tracking-tight tabular-nums">{clock}</span>
             <div className="flex gap-1.5 items-center">
                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path d="M2 22h3V10H2v12zm6 0h3V6H8v16zm6 0h3V2h-3v20zm6 0h3v-8h-3v8z" /></svg>
                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M1.371 8.143c5.858-5.857 15.356-5.857 21.213 0a.75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.06 0c-4.98-4.979-13.053-4.979-18.032 0a.75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.182 3.182c4.1-4.1 10.749-4.1 14.85 0a.75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.062 0 8.25 8.25 0 0 0-11.667 0 .75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.204 3.182a6 6 0 0 1 8.486 0 .75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.061 0 3.75 3.75 0 0 0-5.304 0 .75.75 0 0 1-1.06 0l-.53-.53a.75.75 0 0 1 0-1.06Zm3.182 3.182a1.5 1.5 0 0 1 2.122 0 .75.75 0 0 1 0 1.061l-.53.53a.75.75 0 0 1-1.061 0l-.53-.53a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
                 <div className="w-5 h-2.5 border border-current rounded-[3px] relative px-px flex items-center"><div className="h-1.5 bg-current w-3/4 rounded-[1px]" /></div>
+            </div>
             </div>
         </div>
     );
