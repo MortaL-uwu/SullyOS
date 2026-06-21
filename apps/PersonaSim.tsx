@@ -622,11 +622,12 @@ const MoodThought: React.FC<{ text: string; vibe?: Vibe }> = ({ text, vibe = 'ca
         return (
             <div className="absolute inset-0 overflow-hidden">
                 {pool.map((f, i) => (
-                    <span key={i} className="absolute whitespace-nowrap animate-fade-in"
+                    <span key={i} className="absolute animate-fade-in"
                         style={{
-                            top: `${8 + rnd(i + 1) * 78}%`, left: `${4 + rnd(i + 7) * 64}%`,
-                            transform: `rotate(${(rnd(i + 3) - 0.5) * 46}deg)`,
-                            fontSize: `${13 + rnd(i + 5) * 17}px`,
+                            top: `${6 + rnd(i + 1) * 62}%`, left: `${6 + rnd(i + 7) * 44}%`,
+                            maxWidth: '46%', wordBreak: 'break-word', textAlign: 'center', lineHeight: 1.3,
+                            transform: `rotate(${(rnd(i + 3) - 0.5) * 30}deg)`,
+                            fontSize: `${13 + rnd(i + 5) * 14}px`,
                             opacity: 0.35 + rnd(i + 9) * 0.6,
                             color: 'white', fontFamily: "'Shippori Mincho','Noto Sans SC',serif",
                             animationDelay: `${i * 90}ms`, animationFillMode: 'backwards',
