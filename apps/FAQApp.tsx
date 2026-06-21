@@ -11,6 +11,7 @@ import {
     CHANGELOG_2026_05_27,
     CHANGELOG_2026_06_05,
     CHANGELOG_2026_06_14,
+    CHANGELOG_2026_06_21,
 } from '../components/UpdateNotificationEvent';
 
 const FAQ_DATA = [
@@ -96,6 +97,14 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        id: CHANGELOG_2026_06_21,
+        title: '2026 年 6 月 21 日 · 查手机翻新',
+        subtitle: '查手机 UI 翻新 + 新增「人格模拟」（可指定一场 Screenlife 演出，设置里可选是否发送给角色）· 外观新增手游风 · 小红书 Lite 可直接分享帖子给角色',
+        date: '2026-06-21',
+        src: 'changelogs/2026-6-21.html',
+        accent: 'from-violet-100 to-fuchsia-100 border-violet-200',
+    },
     {
         id: CHANGELOG_2026_06_14,
         title: '2026 年 6 月 14 日 · 家园上线',
