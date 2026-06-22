@@ -341,6 +341,11 @@ const CallApp: React.FC = () => {
     return raw;
   }, [selectedChar?.bubbleStyle, customThemes]);
   const callScrollableRef = useRef<HTMLDivElement | null>(null);
+  const draftInputRef = useRef<HTMLInputElement | null>(null);
+  // 输入面板默认展开，但「进入通话」时不能自动聚焦输入框——移动端一聚焦就弹
+  // 键盘、把整个界面往上顶（用户反馈的「一进通话就飞上去」）。只在用户后续
+  // 手动展开面板时才聚焦，初次挂载跳过。
+  const inputPanelMountedRef = useRef(false);
   // Restore this character's remembered translation language whenever the selection changes.
   useEffect(() => {
     setVoiceLang(selectedChar?.callVoiceLang || '');
@@ -458,6 +463,11 @@ const CallApp: React.FC = () => {
   useEffect(() => {
     callScrollableRef.current?.scrollTo({ top: callScrollableRef.current.scrollHeight, behavior: 'smooth' });
   }, [bubbles]);
+  useEffect(() => {
+    // 跳过初次挂载的自动聚焦，避免进入通话时键盘把界面顶飞；之后用户主动展开才聚焦。
+    if (!inputPanelMountedRef.current) { inputPanelMountedRef.current = true; return; }
+    if (showInputPanel) draftInputRef.current?.focus();
+  }, [showInputPanel]);
   // 开场白：进入通话后角色自动先开口
   const greetingFiredRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1392,11 +1402,11 @@ const CallApp: React.FC = () => {
               </button>
             )}
             <input
+              ref={draftInputRef}
               value={draftInput}
               onChange={(e) => setDraftInput(e.target.value)}
               className="flex-1 bg-transparent px-2 text-sm outline-none placeholder:text-white/35"
               placeholder={isListening ? '在听你说……' : sendingBusy ? `${selectedChar?.name || '对方'}正在想……` : `想对${selectedChar?.name || '对方'}说什么？`}
-              autoFocus
             />
             <button onClick={handleTurn} disabled={sendingBusy} className="px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition active:scale-95" style={{ backgroundColor: accentColor, boxShadow: `0 0 16px ${accentColor}66` }}>{sendingBusy ? '…' : '说'}</button>
           </div>

@@ -6,13 +6,19 @@ import { DB } from '../../utils/db';
 import DateSettings from './DateSettings';
 import { synthesizeSpeech, cleanTextForTts, VALID_EMOTIONS } from '../../utils/minimaxTts';
 
-// Map a VN sprite-emotion key ([happy]/[sad]/[angry]/[shy]/[normal]/custom) to a
-// valid MiniMax TTS emotion. Sprite keys that aren't valid MiniMax emotions
-// (normal, shy, …) fall through to undefined → no emotion override.
-const dateSpriteToEmotion = (key?: string): string | undefined => {
-    if (!key) return undefined;
-    const k = key.toLowerCase();
-    return VALID_EMOTIONS.has(k) ? k : undefined;
+// 语音情绪标记 [v:xxx]：跟立绘情绪 [emotion] 分开的独立通道。立绘的 happy 是
+// 夸张的表情、语音的 happy 是音色情绪，两者强度/语义差异大，不能一概而论。
+// 所以语音情绪由 LLM 用 [v:xxx] 单独标，没标就不传（让 MiniMax 自然朗读）。
+// 从一行里抽出 [v:xxx]，返回 { voiceEmotion, rest（已剥掉该标记的文本）}。
+const VOICE_EMOTION_TAG_RE = /\[v:\s*([a-zA-Z]+)\s*\]/i;
+const extractVoiceEmotionTag = (line: string): { voiceEmotion?: string; rest: string } => {
+    let voiceEmotion: string | undefined;
+    const rest = line.replace(VOICE_EMOTION_TAG_RE, (_m, e: string) => {
+        const k = (e || '').toLowerCase();
+        if (VALID_EMOTIONS.has(k)) voiceEmotion = k;
+        return '';
+    });
+    return { voiceEmotion, rest };
 };
 
 // Helper: Parse dialogue with simple state machine
@@ -57,11 +63,15 @@ const parseDialogue = (fullText: string, initialEmotion: string = 'normal'): Dia
     const results: DialogueItem[] = [];
     let currentEmotion = initialEmotion;
 
-    for (const line of lines) {
-        if (isContextNoise(line)) continue;
+    for (const rawLine of lines) {
+        if (isContextNoise(rawLine)) continue;
+        // 先把独立的语音情绪标记 [v:xxx] 抽出来（跟立绘情绪互不影响），再解析立绘标签
+        const { voiceEmotion, rest } = extractVoiceEmotionTag(rawLine);
+        const line = rest.trim();
+        if (!line) continue;
         const tagMatch = line.match(/^\[([a-zA-Z0-9_\-]+)\]\s*(.*)/);
         let content = line;
-        
+
         if (tagMatch) {
             currentEmotion = tagMatch[1].toLowerCase();
             content = tagMatch[2];
@@ -69,11 +79,11 @@ const parseDialogue = (fullText: string, initialEmotion: string = 'normal'): Dia
             const standaloneTag = line.match(/^\[([a-zA-Z0-9_\-]+)\]$/);
             if (standaloneTag) {
                 currentEmotion = standaloneTag[1].toLowerCase();
-                continue; 
+                continue;
             }
         }
         if (content) {
-            results.push({ text: content, emotion: currentEmotion });
+            results.push({ text: content, emotion: currentEmotion, voiceEmotion });
         }
     }
     return results;
@@ -155,8 +165,9 @@ const DateSession: React.FC<DateSessionProps> = ({
     const dateAudioRef = useRef<HTMLAudioElement | null>(null);
     const voiceEnabled = !!char.dateVoiceEnabled;
     const voiceLang = char.dateVoiceLang || '';
-    // Bridges the current line's sprite-emotion to the GAL voice effect (which keys
-    // off currentText only). A ref so it doesn't churn the effect's deps.
+    // Bridges the current line's VOICE emotion ([v:xxx], 跟立绘情绪分开) to the GAL
+    // voice effect (which keys off currentText only). undefined = 不传情绪，自然朗读。
+    // A ref so it doesn't churn the effect's deps.
     const currentLineEmotionRef = useRef<string | undefined>(undefined);
 
     const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
@@ -360,7 +371,7 @@ const DateSession: React.FC<DateSessionProps> = ({
                 // Manually trigger first item processing
                 const first = items[0];
                 setCurrentText(first.text);
-                currentLineEmotionRef.current = dateSpriteToEmotion(first.emotion);
+                currentLineEmotionRef.current = first.voiceEmotion;
                 // Note: Not setting sprite here because useEffect below will handle emotion->sprite mapping if needed,
                 // or we rely on default.
                 setDialogueQueue(items.slice(1));
@@ -418,7 +429,7 @@ const DateSession: React.FC<DateSessionProps> = ({
 
     const processNextDialogue = (item: DialogueItem, remaining: DialogueItem[]) => {
         setCurrentText(item.text);
-        currentLineEmotionRef.current = dateSpriteToEmotion(item.emotion);
+        currentLineEmotionRef.current = item.voiceEmotion;
         if (item.emotion && activeSprites) {
             const emotionKey = item.emotion.toLowerCase();
             if (dateEmotionKeys.includes(emotionKey)) {

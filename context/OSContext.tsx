@@ -1147,6 +1147,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const activeCharIdScheduleRef = useRef(activeCharacterId);
   activeAppRef.current = activeApp;
   activeCharIdScheduleRef.current = activeCharacterId;
+  // 通话状态（含挂起到后台的通话）——主动消息流程读它来判断"是否正在通话"
+  const suspendedCallRef = useRef(suspendedCall);
+  suspendedCallRef.current = suspendedCall;
 
   useEffect(() => {
       if (!isDataLoaded || characters.length === 0) return;
@@ -1162,6 +1165,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // ([schedule_message] 指令) 这轮先压着不投递（不删不读），
                   // 等用户离开见面界面后，下一轮 5s 检查会自然送达。
                   if (activeAppRef.current === AppID.Date && activeCharIdScheduleRef.current === char.id) continue;
+                  // 通话中（含挂起）同理：定时消息这轮先压着，离开通话后下一轮再送达。
+                  if ((activeAppRef.current === AppID.Call && activeCharIdScheduleRef.current === char.id)
+                      || suspendedCallRef.current?.charId === char.id) continue;
                   const dueMessages = await DB.getDueScheduledMessages(char.id);
                   if (cancelled) return;
                   if (dueMessages.length > 0) {
@@ -1446,6 +1452,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (activeAppRef.current === AppID.Date && activeCharIdScheduleRef.current === charId) {
               drainQueuedProactive();
               console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: 正在见面 (DateApp active)`);
+              return;
+          }
+
+          // 用户正在和这个角色通话（含通话被挂起到后台）—— 通话里再塞一条线上
+          // 主动消息，不仅出戏，主动消息的提示词还会污染上下文、把后续语音
+          // 带成线上消息格式。本轮静默跳过；下个周期会重新评估。
+          if ((activeAppRef.current === AppID.Call && activeCharIdScheduleRef.current === charId)
+              || suspendedCallRef.current?.charId === charId) {
+              drainQueuedProactive();
+              console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: 正在通话 (CallApp active)`);
               return;
           }
 
