@@ -140,7 +140,9 @@ const Settings: React.FC = () => {
   const [rtFeishuBaseId, setRtFeishuBaseId] = useState(realtimeConfig.feishuBaseId);
   const [rtFeishuTableId, setRtFeishuTableId] = useState(realtimeConfig.feishuTableId);
   const [rtXhsEnabled, setRtXhsEnabled] = useState(realtimeConfig.xhsEnabled);
-  const XHS_LITE_URL = 'https://sullymeow.ccwu.cc/api';
+  // lite 模式走中心配置的主代理 worker（/api 是 worker/index.js 里的 XHSLite 桥）。
+  // 用户改了「自定义网络代理」，lite 模式自动跟着切到新 worker。
+  const XHS_LITE_URL = `${getProxyWorkerUrl()}/api`;
   const XHS_RISK_TEXT = '⚠️ 风险：本功能基于网页爬虫技术调用小红书，账号有被风控的概率。建议①用小号；②尽量别让角色主动发帖；③发出的笔记可能被屏蔽。';
   const XHS_COOKIE_GUIDE = [
     '【获取小红书 cookie 教程】',
@@ -154,9 +156,12 @@ const Settings: React.FC = () => {
     '注意：别用 Console 的 document.cookie，拿不到 web_session(httpOnly)。cookie 数天~数周会过期，失效重复制即可。',
   ].join('\n');
   const _xhsCfgUrl = realtimeConfig.xhsMcpConfig?.serverUrl || '';
+  // local MCP 地址不含 /api；lite bridge 含 /api。按这个判模式（与 xhsMcpClient.detectMode 一致），
+  // 比之前的 `!== XHS_LITE_URL` 更稳——换 worker 域名后老的 lite 配置不会被误判成 local。
+  const _xhsIsLocal = !!_xhsCfgUrl && !_xhsCfgUrl.includes('/api');
   const [rtXhsMcpEnabled, setRtXhsMcpEnabled] = useState(realtimeConfig.xhsMcpConfig?.enabled || false);
-  const [rtXhsMode, setRtXhsMode] = useState<'lite' | 'local'>(_xhsCfgUrl && _xhsCfgUrl !== XHS_LITE_URL ? 'local' : 'lite');
-  const [rtXhsLocalUrl, setRtXhsLocalUrl] = useState(_xhsCfgUrl && _xhsCfgUrl !== XHS_LITE_URL ? _xhsCfgUrl : 'http://localhost:18060/mcp');
+  const [rtXhsMode, setRtXhsMode] = useState<'lite' | 'local'>(_xhsIsLocal ? 'local' : 'lite');
+  const [rtXhsLocalUrl, setRtXhsLocalUrl] = useState(_xhsIsLocal ? _xhsCfgUrl : 'http://localhost:18060/mcp');
   const [rtXhsNickname, setRtXhsNickname] = useState(realtimeConfig.xhsMcpConfig?.loggedInNickname || '');
   const [rtXhsUserId, setRtXhsUserId] = useState(realtimeConfig.xhsMcpConfig?.loggedInUserId || '');
   const [rtXhsCookie, setRtXhsCookie] = useState(realtimeConfig.xhsMcpConfig?.cookie || '');
@@ -1709,8 +1714,9 @@ const Settings: React.FC = () => {
                 </div>
 
                 <p className="text-[10px] text-slate-400 px-1 mt-2 leading-relaxed">
-                    只填到域名（如 <b>{DEFAULT_PROXY_WORKER}</b>），不要带 /search、/webdav 等路径。
-                    音乐和小红书 Lite 有各自独立的地址，不受这里影响。
+                    只填到域名（如 <b>{DEFAULT_PROXY_WORKER}</b>），不要带 /search、/webdav、/api 等路径。
+                    联网搜索 / 备份代理 / Notion / 飞书 / 点单 / 网页抓取 / 出图 / 小红书 Lite / 音乐 都会切到这里填的 Worker。
+                    （音乐播放器里还留了一个独立地址框，单独填了就以那个为准。）
                 </p>
             </section>
         )}
