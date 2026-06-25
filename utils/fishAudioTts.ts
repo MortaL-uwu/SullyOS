@@ -221,6 +221,23 @@ export const stripFishMarkupForDisplay = (text?: string | null): string => {
     .trim();
 };
 
+/**
+ * 精准版显示清洗：只删「被识别为 cue 的」方括号/圆括号（[excited]/[pause]/[smug]/(laughs) 等
+ * —— 凡 normalizeFishCue 认得的都算），普通括注（[重要]/[TODO]/(顺便) 等）原样保留。
+ * 因为只删可识别的 cue 词，可**安全地无差别用于任意显示文本**（聊天气泡 / 转文字 / 翻译），
+ * 不挑服务商，也不会误伤用户自己打的括号内容。
+ */
+export const stripFishCuesForDisplay = (text?: string | null): string => {
+  if (!text) return '';
+  return text
+    .replace(/\[([^\[\]]{1,40})\]/g, (m, inner: string) => (normalizeFishCue(inner) ? '' : m))
+    .replace(/\(([^)]{1,40})\)/g, (m, inner: string) => (normalizeFishCue(inner) ? '' : m))
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([，。！？、；：,.!?…])/g, '$1')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .trim();
+};
+
 /** 解析 apiConfig 里的鱼声 Key（独立 Key，不复用通用 apiKey —— 那是 LLM 的）。 */
 export const resolveFishAudioApiKey = (apiConfig: APIConfig): string =>
   normalizeApiKey(apiConfig.fishAudioApiKey || '');
