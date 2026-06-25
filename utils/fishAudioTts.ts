@@ -380,9 +380,10 @@ export async function synthesizeSpeechFishDetailed(
     // 展开数字/日期为自然读法，长文本更稳。
     normalize: true,
   };
-  if (vp?.speed && vp.speed !== 1) {
-    payload.prosody = { speed: Math.max(0.5, Math.min(2, vp.speed)) };
-  }
+  // 语速：角色配了就用角色的；没配则默认 0.9（比 1.0 慢一档）——鱼声默认读得偏赶，
+  // 尤其外语长段落容易"一口气念完"，稍微放慢更像真人说话、段落停顿也更听得出。
+  const speed = (typeof vp?.speed === 'number' && vp.speed > 0) ? vp.speed : 0.9;
+  payload.prosody = { speed: Math.max(0.5, Math.min(2, speed)) };
 
   const cacheKey = hashTtsParams({
     kind: 'fishaudio-tts',
