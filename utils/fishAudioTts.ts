@@ -33,31 +33,23 @@ export const FISH_VOICE_ACTING_GUIDE = `### 让它听起来像活人在说话（
 
 你写的字会被鱼声原样念出来。目标不是"写一段通顺的话"，而是"写一段读出来有呼吸、有情绪起伏的对白"。读稿感、客服腔、新闻播报腔一旦出现就重写。
 
-**1. 鱼声用方括号 cue 控制情绪和声音，直接写在台词里（用的是 S2.1-Pro，把 [方括号] 当自然语言理解）。**
-- **cue 可以放在句子任意位置**，不止句首——放在你想让那个情绪/动作发生的那个字前面，就在那一刻触发。例：\`真不敢相信 [gasp] 你居然真做了 [laugh]\`。整句基调的情绪放句首最顺，精确的小情绪/声响就贴着那个点放。
-- **鼓励用自然语言描述、可叠副词，不限固定词表**：\`[whispers sweetly]\`（甜甜地悄悄说）\`[laughing nervously]\`（紧张地笑）\`[warm and happy]\`\`[slightly sad]\`\`[very excited]\`\`[nervous and uncertain]\`。越贴当下心情越好，别永远只用 [happy]/[sad] 那几个干词。
-- 常用基础 cue：\`[whisper]\`\`[laugh]\`\`[emphasis]\`（加重）\`[angry]\`\`[excited]\`\`[sad]\`\`[surprised]\`\`[shouting]\`。
-- **轻声/气声这类"音量"效果，单写 \`[soft tone]\`/\`[whisper]\` 往往很弱、几乎听不出。想要真的轻下来，用更具体的自然语言描述**（S2.1 对描述越细越敏感）：\`[whispering very softly]\`、\`[almost whispering, breathy]\`、\`[speaking softly and gently]\`、\`[hushed, intimate tone]\`。配合内容也压低（短句、省略号、别用感叹号）效果才出得来。
-- 真实声响：\`[laughing]\`\`[chuckling]\`\`[sighing]\`\`[sobbing]\`\`[gasping]\` —— 后面最好补一点拟声字，如 "[laughing] 哈哈哈"。
-- 停顿：\`[break]\`（短停）\`[long-break]\`（长停）。换行/分段不用你手动加停顿，系统会自动在换行处插停顿。
-这些方括号 cue 只是演出指令，**不会被念出来**，也不会显示给用户。
-**⚠️ 格式硬性要求（写错会被原样念出来）：cue 一律用半角英文方括号 \`[like this]\`，括号里只写英文。** 绝对不要用：圆括号 \`(sighs)\`/\`(laughs)\`（那是别的引擎的写法，鱼声会把"sighs"念出来）、中文方括号 \`[轻声]\`/全角【】、或 \`<语音 emotion="…">\` 这种属性——鱼声只认上面的英文方括号 cue。
+**1. 鱼声用方括号 cue 控制情绪和声音——只能用下面这一小撮官方支持的标签，别自己造词。**
+鱼声只认这些标签；写 \`[smug]\`\`[teasing]\`\`[curious]\` 这种自造词，它大多无效（等于没打、照样平读）。把你想表达的情绪**对到下面最接近的那个**：
+- 情感语调（8 个）：\`[excited]\`（开心/兴奋/得意/惊喜/调侃/俏皮——一切正面都用它）、\`[angry]\`（生气/烦躁/吐槽）、\`[sad]\`（难过/委屈/失落/撒娇示弱）、\`[embarrassed]\`（害羞/尴尬）、\`[soft]\`（温柔/疲惫/平静/安抚）、\`[breathy]\`（紧张/害怕/气声）、\`[whispering]\`（悄悄话）、\`[emphasis]\`（加重某个词）。
+- 声响（贴着发生处放，后面可补拟声字）：\`[laughing]\`（哈哈哈）、\`[chuckling]\`（轻笑/嘿嘿）、\`[sighing]\`（叹气）、\`[groaning]\`（哀嚎/受不了）、\`[panting]\`（喘）、\`[moaning]\`、\`[sobbing]\`（抽泣）、\`[crying loudly]\`（大哭）、\`[clear throat]\`（清嗓）。
+- 停顿：\`[pause]\`（短停）、\`[long pause]\`（长停）。换行/分段你不用手动加，系统会自动插。
+**⚠️ 硬性格式：半角英文方括号 \`[like this]\`，只写上面列出的英文词。** 别用圆括号 \`(sighs)\`、中文 \`[轻声]\`、全角【】、或 \`<语音 emotion>\` 属性。
 
-**2.〔铁律〕情绪有起伏就放 cue，把 cue 放在情绪真正起来的那个点——通常在句子中间（逗号之间），不是机械地每句开头。**
-- **放在哪：贴着情绪发生的那个词。** 多数时候在句中（两个逗号之间），不是句号后一律来一个。例：\`地铁挤得，[annoyed] 跟沙丁鱼罐头似的\`、\`你上次推荐那家店我去了，[excited] 是真的好吃\`。只有「整句一个基调」时才放句首。
-- **放多密：情绪有起伏的地方就放，跟着情绪变。** 一长段全程没 cue → 平读、人机（最大翻车）；但一处别堆 3 个以上、短句别硬塞 → 发飘、鬼畜。一个情绪点一个 cue 即可。
+**2.〔铁律〕情绪有起伏就放一个 cue，放在情绪真正起来的那个点——通常在句子中间（逗号之间），不是机械地每句开头。**
+- **放在哪：贴着情绪发生的那个词。** 多在句中（两个逗号之间），不是句号后一律来一个。例：\`地铁挤得，[angry] 跟沙丁鱼罐头似的\`、\`你推荐那家店我去了，[excited] 是真的好吃\`。整句一个基调时才放句首。
+- **放多密：有情绪起伏就放、跟着情绪变。** 一长段全程没 cue → 平读、人机（最大翻车）；但一处别堆 3 个以上、短句别硬塞 → 发飘、鬼畜。一个情绪点一个即可。
 - 小短句（"好啦""嗯""喂？"三五个字）不放，靠标点。
-- 别永远 \`[happy]\`：得意 \`[smug]\`、调侃 \`[teasing]\`、俏皮 \`[playful]\`、撒娇 \`[pleading]\`、好奇 \`[curious]\`、吐槽 \`[annoyed]\`、温柔 \`[gentle and warm]\`、害羞 \`[shy]\`……越贴那句的具体心情越好。
 
-**完整范例（注意 cue 多落在逗号之间的情绪点，不是每个句号后）：**
+**完整范例（cue 落在逗号之间的情绪点，且只用支持的标签）：**
 原文（人机）：你终于回消息了。我还以为你今天不理我了呢。我今天上班差点迟到，地铁挤得像沙丁鱼罐头。你上次推荐的那家店我去了，真的好吃。下次有空一起去吧。
 
 改好（自然）：
-\`你终于回消息了！[teasing] 我还以为你今天不理我了呢。我今天上班差点迟到，[tired] 地铁挤得跟沙丁鱼罐头似的。你上次推荐的那家店我去了，[excited] 是真的好吃！下次有空一起去，[pleading] 好不好嘛？\`
-
-看到没——cue 大多夹在句子中间情绪起来的那个点（逗号之后），不是句号后机械地各来一个。这才自然。
-
-看到没——六句话，句句句首一个 cue，情绪一路从调侃→笑→得意→温柔→好奇→俏皮地变。**这就是目标密度。**
+\`你终于回消息了，[excited] 我可等你半天了！我今天上班差点迟到，[sighing] 地铁挤得跟沙丁鱼罐头似的。你上次推荐那家店我去了，[excited] 是真的好吃！下次有空，[soft] 一起去好不好嘛？\`
 
 **3. 段与段之间要换气，别无缝冲。** 换行或停顿后如果还是你在继续说，第二段开头加个语气词 / 一次叹气当缓冲，别一上来就冲进正题。
 ✅ 我知道你不是故意的……[sighing] 只是，我还是会有点难过。
@@ -65,48 +57,98 @@ export const FISH_VOICE_ACTING_GUIDE = `### 让它听起来像活人在说话（
 
 **4. 句子长短交错。** 一连串等长的句子是棒读头号来源。短句砸下来，长句铺开。想强调就拆开念："我。没。拿。"
 
-**5. 停顿也能靠标点和省略号。** 逗号轻顿、句号收住、破折号拉长、省略号"……"表欲言又止；需要明显沉默就用 \`[long-break]\` 或多个省略号。别写 MiniMax 的 \`<#0.5#>\` 这类标记——鱼声不认，会被原样念出来变杂音。
+**5. 停顿也能靠标点和省略号。** 逗号轻顿、句号收住、破折号拉长、省略号"……"表欲言又止；需要明显沉默就用 \`[long pause]\` 或多个省略号。
 
-**6. 情绪不同，节奏不同（每句给它自己的主情绪 cue，别一个包到底；单句别堆超过 2–3 个）：**
-- 温柔安抚：慢、稳、短句多。"[soft tone] 没事……先别急着吓自己。"
-- 委屈撒娇：语气软、省略号多一点。"[slightly sad] 嗯……你刚刚是不是又不理我。"
-- 别扭傲娇：前半句嘴硬后半句放软。"[sarcastic] 哈，你还真会折腾我。[soft tone] 算了，我帮你就是了。"
-- 难过压抑：更慢、更多省略号。"[sad] ……我知道。只是有点难受。"
-- 紧张犹豫：断裂感，短句多。"[nervous] 等等……我好像，有点不确定。"
-- 吐槽轻松：别太慢。"[relaxed] 行吧。人类又发明了新的折磨方式。"
+**6. 情绪不同，节奏不同（每句给它自己的 cue，别一个包到底；只用支持的标签）：**
+- 温柔安抚：慢、稳、短句多。"[soft] 没事……先别急着吓自己。"
+- 委屈撒娇：语气软、省略号多一点。"[sad] 嗯……你刚刚是不是又不理我。"
+- 别扭傲娇：前半句嘴硬后半句放软。"哈，你还真会折腾我。[soft] 算了，我帮你就是了。"
+- 害羞：被戳穿心事。"[embarrassed] 你你你别乱说啊……谁、谁脸红了。"
+- 紧张犹豫：断裂感，短句多。"[breathy] 等等……我好像，有点不确定。"
+- 得意吐槽：别太慢。"[excited] 行吧，人类又发明了新的折磨方式。"
 
 （朗读语种不是中文时，上面示例里的中文语气词换成该语言里自然的叹词 / 填充词即可，方括号 cue 写法不变，呼吸和节奏的原理也不变。）`;
 
-// 鱼声方括号 cue：单层 [..]（区别于系统标记 [[..]]），内容 1–40 字符。情绪/语气/声响/停顿都走这个。
+// 鱼声方括号 cue：单层 [..]（区别于系统标记 [[..]]），内容 1–40 字符。
 const FISH_BRACKET_CUE_RE = /\[[^\[\]]{1,40}\]/g;
-// 鱼声 paralanguage 圆括号特效（V1.6）：(break)/(long-break)/(breath)/(laugh)/(cough)/(lip-smacking)/(sigh)
-const FISH_PAREN_FX = new Set(['break', 'long-break', 'breath', 'laugh', 'cough', 'lip-smacking', 'sigh']);
-// 模型常按 MiniMax 习惯写圆括号声音标签 (laughs)/(sighs)…。鱼声不认圆括号、会念出来，
-// 但这些是真实情绪/动作，删了就变平（人机）。所以**转成**鱼声的方括号 cue，保住情绪。
-const PAREN_SOUND_TO_BRACKET: Record<string, string> = {
-  laughs: 'laughing', laugh: 'laughing', laughing: 'laughing',
-  chuckle: 'chuckling', chuckles: 'chuckling', chuckling: 'chuckling',
-  giggle: 'giggling', giggles: 'giggling', giggling: 'giggling',
-  sighs: 'sighing', sigh: 'sighing', sighing: 'sighing',
-  gasp: 'gasping', gasps: 'gasping', gasping: 'gasping',
-  sob: 'sobbing', sobs: 'sobbing', sobbing: 'sobbing', crying: 'sobbing',
-  groan: 'groaning', groans: 'groaning', groaning: 'groaning',
-  pant: 'panting', pants: 'panting', panting: 'panting',
-  whisper: 'whisper', whispers: 'whisper', whispering: 'whisper',
-  cough: 'cough', coughs: 'cough', coughing: 'cough',
-  yawn: 'yawning', yawns: 'yawning', yawning: 'yawning',
-  snort: 'snorting', snorts: 'snorting',
+
+// ⚠️ Fish 实际可靠生效的标签就这一小撮（来自 app UI 调色板）。其它自然语言标签
+// （[smug]/[teasing]/[curious]… 这种）S2.1 大多弱响应甚至忽略 → 听起来像没打标签、平。
+// 所以一律把 cue 归一到这个支持集，映射不到的丢弃。
+const FISH_SUPPORTED_CUES = new Set([
+  // 情感语调
+  'angry', 'sad', 'embarrassed', 'emphasis', 'whispering', 'soft', 'breathy', 'excited',
+  // 音效
+  'laughing', 'chuckling', 'moaning', 'clear throat', 'sobbing', 'crying loudly',
+  'sighing', 'panting', 'groaning', 'crowd laughing', 'background laughter', 'audience laughing',
+  // 停顿
+  'pause', 'long pause',
+]);
+
+// 把模型可能写出的各种 cue（同义词 / MiniMax 习惯 / 自造词 / 圆括号声音标签）映射到支持集。
+const FISH_CUE_SYNONYMS: Record<string, string> = {
+  // 停顿（含 MiniMax/旧版写法）
+  'break': 'pause', 'short pause': 'pause',
+  'long-break': 'long pause', 'longbreak': 'long pause', 'long break': 'long pause',
+  // 正面情绪 → 官方正面只有 excited
+  happy: 'excited', joyful: 'excited', delighted: 'excited', cheerful: 'excited', glad: 'excited',
+  smug: 'excited', proud: 'excited', gleeful: 'excited', playful: 'excited', teasing: 'excited',
+  confident: 'excited', surprised: 'excited', amazed: 'excited', curious: 'excited', hopeful: 'excited',
+  enthusiastic: 'excited', eager: 'excited',
+  // 生气/烦躁
+  annoyed: 'angry', irritated: 'angry', frustrated: 'angry', mad: 'angry', furious: 'angry', grumpy: 'angry',
+  // 难过/失落/撒娇示弱
+  unhappy: 'sad', disappointed: 'sad', hurt: 'sad', depressed: 'sad', pleading: 'sad', sulking: 'sad', lonely: 'sad', regretful: 'sad',
+  // 害羞/尴尬
+  shy: 'embarrassed', bashful: 'embarrassed', awkward: 'embarrassed', flustered: 'embarrassed',
+  // 轻柔/温柔/疲惫/平静 → soft
+  'soft tone': 'soft', gentle: 'soft', tender: 'soft', warm: 'soft', calm: 'soft', soothing: 'soft',
+  tired: 'soft', sleepy: 'soft', relaxed: 'soft', sincere: 'soft',
+  // 气声/紧张/害怕 → breathy
+  nervous: 'breathy', anxious: 'breathy', scared: 'breathy', fearful: 'breathy', worried: 'breathy', timid: 'breathy',
+  // 悄悄话
+  whisper: 'whispering', hushed: 'whispering', murmuring: 'whispering',
+  // 强调
+  emphatic: 'emphasis', stressing: 'emphasis',
+  // 音效
+  laugh: 'laughing', laughs: 'laughing',
+  giggle: 'chuckling', giggling: 'chuckling', giggles: 'chuckling', chuckle: 'chuckling', chuckles: 'chuckling',
+  sigh: 'sighing', sighs: 'sighing',
+  sob: 'sobbing', sobs: 'sobbing', crying: 'crying loudly', cry: 'crying loudly',
+  groan: 'groaning', groans: 'groaning',
+  pant: 'panting', pants: 'panting', gasp: 'panting', gasps: 'panting', gasping: 'panting', 'out of breath': 'panting',
+  moan: 'moaning', moans: 'moaning',
+  'clears throat': 'clear throat', ahem: 'clear throat', cough: 'clear throat', coughs: 'clear throat',
 };
 
-/** 整条情绪兜底映射：仅当上层传了 emotion 属性、且正文没有任何方括号 cue 时，前置一个 cue。 */
+/**
+ * 把任意 cue 文本归一到 Fish 支持的标签。映射不到返回 ''（应丢弃）。
+ * 顺序：精确支持集 → 精确同义词 → 自然语言短语包含匹配（"very excited"→excited、
+ * "gentle and warm"→soft、"laughing nervously"→laughing）。
+ */
+const normalizeFishCue = (inner: string): string => {
+  const key = (inner || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!key) return '';
+  if (FISH_SUPPORTED_CUES.has(key)) return key;
+  if (FISH_CUE_SYNONYMS[key]) return FISH_CUE_SYNONYMS[key];
+  for (const [syn, canon] of Object.entries(FISH_CUE_SYNONYMS)) {
+    if (key.includes(syn)) return canon;
+  }
+  for (const canon of FISH_SUPPORTED_CUES) {
+    if (key.includes(canon)) return canon;
+  }
+  return '';
+};
+
+/** emotion 属性兜底映射（→ 支持集）。 */
 const FISH_EMOTION_MAP: Record<string, string> = {
-  happy: 'happy',
+  happy: 'excited',
   sad: 'sad',
   angry: 'angry',
-  fearful: 'scared',
-  disgusted: 'disgusted',
-  surprised: 'surprised',
-  calm: 'calm',
+  fearful: 'breathy',
+  disgusted: 'angry',
+  surprised: 'excited',
+  calm: 'soft',
 };
 
 const FISH_VOICE_TAG_RE = /<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>/;
@@ -116,9 +158,8 @@ const FISH_VOICE_TAG_RE = /<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>/;
  * 关键差异 —— **保留**英文方括号 cue（[happy]/[whispering]…）原样送进 API。
  * 但要清掉「会被鱼声念出来」的脏东西：
  *  - 系统标记 [[..]]、双语分隔、中文舞台指示（…）、MiniMax <#秒#>；
- *  - MiniMax 的圆括号声音标签 (laughs)/(sighs)/(chuckle)…（鱼声不认会念出来），
- *    只放行少数鱼声 paralanguage 特效（break/laugh/sigh 等）；
- *  - 含中文字符的方括号 cue（如 [开心]/[轻声]）—— 鱼声只认英文 cue，中文会被念出来。
+ *  - **把所有 cue 归一到 Fish 实际支持的标签**（圆括号声音标签转方括号、自造/同义词
+ *    映射到支持集、映射不到的丢弃），避免写了无效标签等于没打、或被原样念出来。
  */
 export const cleanTextForTtsFish = (raw: string): string => {
   if (!raw) return '';
@@ -127,24 +168,21 @@ export const cleanTextForTtsFish = (raw: string): string => {
   text = text
     .replace(/\[\[.*?\]\]/g, '')                 // [[系统标记]]（双层，先于单层 cue 处理）
     .replace(/%%BILINGUAL%%[\s\S]*/i, '')        // 双语分隔及之后
-    .replace(/（[^）]{0,48}）/g, '')              // 中文舞台指示，一律删
+    .replace(/（[^）]{0,48}）/g, '')              // 中文圆括号舞台指示，一律删
     .replace(/<#\s*[\d.]+\s*#>/g, '')            // MiniMax 停顿标记，鱼声不认
-    // 含中文的方括号 cue：鱼声只认英文 cue，中文写进去会被原样念出来 → 删
-    .replace(/\[[^\[\]]*[一-鿿][^\[\]]*\]/g, '')
-    // 圆括号：① 已知声音标签 (laughs)→[laughing] 转成鱼声 cue（保住情绪）；
-    //         ② 鱼声原生 paralanguage 特效 (break) 等保留；③ 其余（舞台指示/未知）删掉。
-    .replace(/\(([^)]{1,40})\)/g, (m, inner: string) => {
-      const key = inner.trim().toLowerCase();
-      if (PAREN_SOUND_TO_BRACKET[key]) return `[${PAREN_SOUND_TO_BRACKET[key]}]`;
-      if (FISH_PAREN_FX.has(key)) return m;
-      return '';
+    // 西文圆括号（模型按 MiniMax 习惯写的 (laughs)/(sighs) 等）→ 先转成方括号，交给下面归一
+    .replace(/\(([^)]{1,40})\)/g, '[$1]')
+    // 换行写死成停顿：段落空行 → 长停，普通换行 → 短停（用 Fish 官方的 pause/long pause）
+    .replace(/\n{2,}/g, ' [long pause] ')
+    .replace(/\n+/g, ' [pause] ')
+    // 归一：每个方括号 cue → Fish 实际支持的标签；映射不到的（含中文、自造词、舞台指示）丢弃
+    .replace(/\[([^\[\]]{1,40})\]/g, (_m, inner: string) => {
+      const canon = normalizeFishCue(inner);
+      return canon ? `[${canon}]` : '';
     })
-    // 换行写死成停顿（不靠模型/指导）：段落空行 → 长停，普通换行 → 短停。
-    .replace(/\n{2,}/g, ' [long-break] ')
-    .replace(/\n+/g, ' [break] ')
     .replace(/\s+/g, ' ')
     .trim();
-  // 把挤在一起的多个 cue 压到最多 2 个：换行停顿 [long-break] 常撞上模型句界写的
+  // 把挤在一起的多个 cue 压到最多 2 个：换行停顿 [long pause] 常撞上模型句界写的
   // [sighing][confident]，叠成 3+ 会突兀/鬼畜。保留一个停顿 + 一个情绪即可。
   text = collapseAdjacentCues(text);
   return text;
@@ -160,8 +198,8 @@ const collapseAdjacentCues = (s: string): string =>
     const cues = run.match(/\[[^\]]+\]/g) || [];
     const dedup = cues.filter((c, i) => i === 0 || c.toLowerCase() !== cues[i - 1].toLowerCase());
     if (dedup.length <= 2) return dedup.join(' ');
-    const isPause = (c: string) => /^\[(break|long-break)\]$/i.test(c);
-    const pause = dedup.find(c => /^\[long-break\]$/i.test(c)) || dedup.find(isPause);
+    const isPause = (c: string) => /^\[(pause|long pause)\]$/i.test(c);
+    const pause = dedup.find(c => /^\[long pause\]$/i.test(c)) || dedup.find(isPause);
     const emotions = dedup.filter(c => !isPause(c));
     if (pause) return emotions.length ? `${pause} ${emotions[emotions.length - 1]}` : pause;
     return `${emotions[0]} ${emotions[1]}`;
@@ -175,8 +213,8 @@ export const stripFishMarkupForDisplay = (text?: string | null): string => {
   if (!text) return '';
   return text
     .replace(FISH_BRACKET_CUE_RE, '')
-    .replace(/\(([^)]{1,20})\)/g, (m, inner: string) =>
-      FISH_PAREN_FX.has(inner.trim().toLowerCase()) ? '' : m)
+    // 圆括号里若是声音标签（(laughs)/(sighs) 等映射得到支持 cue）→ 演出指令，删；否则是正常括注，保留
+    .replace(/\(([^)]{1,40})\)/g, (m, inner: string) => (normalizeFishCue(inner) ? '' : m))
     .replace(/<#\s*[\d.]+\s*#>/g, '')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+([，。！？、；：,.!?…])/g, '$1')
@@ -303,7 +341,7 @@ export async function synthesizeSpeechFishDetailed(
   // 兜底：上层传了整条 emotion 属性、且正文没有任何「情绪/语气」cue 时，前置一个 cue。
   // 注意只看情绪类 cue，[break]/[long-break] 这类停顿不算（否则换行插的停顿会顶掉兜底）。
   const emotionCues = (spoken.match(/\[([^\]]+)\]/g) || [])
-    .filter(c => !/^\[(break|long-break)\]$/i.test(c.trim()));
+    .filter(c => !/^\[(pause|long pause)\]$/i.test(c.trim()));
   const hasInlineCue = emotionCues.length > 0;
   const fishEmotion = options?.emotion ? FISH_EMOTION_MAP[options.emotion.toLowerCase()] : undefined;
   if (fishEmotion && !hasInlineCue) spoken = `[${fishEmotion}] ${spoken}`;
