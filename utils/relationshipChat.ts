@@ -209,7 +209,8 @@ export async function runRealConversation(
     p: RunRealConversationParams,
 ): Promise<RealConversationResult> {
     const { a, b, user, api, affinityA, affinityB } = p;
-    const rounds = Math.max(1, Math.min(8, p.rounds ?? 3));
+    // 默认 1 个往返 = A 发一次 + B 回一次 = 正好 2 次 LLM 调用（好感变化折进各自回复，不再额外调用）
+    const rounds = Math.max(1, Math.min(8, p.rounds ?? 1));
 
     const ctxA = await buildSpeakerContext(a, user, b.name);
     const ctxB = await buildSpeakerContext(b, user, a.name);
@@ -234,6 +235,23 @@ export async function runRealConversation(
             ? turns.map(t => `${t.speaker === 'A' ? a.name : b.name}: ${t.text}`).join('\n')
             : '';
 
+    // 从一段回复里抽出 [[Δ:+N]] 好感变化并剥掉标记，再去掉可能的「名字:」前缀
+    const extract = (raw: string, selfName: string): { text: string; delta: number } => {
+        let delta = 0;
+        let text = raw.replace(/\[\[\s*Δ?\s*[:：]?\s*([+-]?\d+)\s*\]\]/g, (_m, n) => {
+            delta += parseInt(n, 10) || 0;
+            return '';
+        });
+        text = text
+            .replace(/^[「"']|[」"']$/g, '')
+            .replace(new RegExp(`^\\s*(我|${selfName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\s*[:：]\\s*`), '')
+            .trim();
+        return { text, delta: Math.max(-20, Math.min(20, delta)) };
+    };
+
+    let aDelta = 0;
+    let bDelta = 0;
+
     for (let i = 0; i < rounds; i++) {
         // ---- A 发 ----
         const aPrompt = `${ctxA}
@@ -252,15 +270,18 @@ ${recentA}
 ${labeled() || '（还没开始，由你起头）'}
 """
 
-任务：以「${a.name}」的身份，说出你接下来要发给「${b.name}」的下一条消息（2-4 句，IM 聊天风格，贴合你的人设和当前好感）。只输出消息正文，不要加「${a.name}:」之类前缀，不要解释、不要旁白。`;
-        let aLine = '';
+任务：以「${a.name}」的身份，发给「${b.name}」接下来的一段消息（3-6 句、可以连发几条，IM 聊天风格，信息量要够，贴合你的人设和当前好感）。
+只输出消息正文，不要加「${a.name}:」之类前缀，不要解释、不要旁白。
+最后另起一行，用 [[Δ:+N]] 标注说完这段后你对 TA 的好感变化（N 为 -20~20 的整数，没变化写 [[Δ:0]]）。`;
+        let aRaw = '';
         try {
-            aLine = await chatCompletion(api, aPrompt);
+            aRaw = await chatCompletion(api, aPrompt);
         } catch {
             break;
         }
-        aLine = aLine.replace(/^[「"']|[」"']$/g, '').replace(/^.*?[:：]\s*/, '').trim();
-        if (aLine) turns.push({ speaker: 'A', text: aLine });
+        const aParsed = extract(aRaw, a.name);
+        aDelta += aParsed.delta;
+        if (aParsed.text) turns.push({ speaker: 'A', text: aParsed.text });
 
         // ---- B 回 ----
         const bPrompt = `${ctxB}
@@ -279,15 +300,18 @@ ${recentB}
 ${labeled()}
 """
 
-任务：以「${b.name}」的身份回复「${a.name}」（2-4 句，IM 风格，贴合人设与好感）。只输出回复正文，不要前缀，不要解释、不要旁白。`;
-        let bLine = '';
+任务：以「${b.name}」的身份回复「${a.name}」（3-6 句、可以连发几条，IM 风格，信息量要够，贴合人设与好感）。
+只输出回复正文，不要前缀，不要解释、不要旁白。
+最后另起一行，用 [[Δ:+N]] 标注回完这段后你对 TA 的好感变化（N 为 -20~20 的整数，没变化写 [[Δ:0]]）。`;
+        let bRaw = '';
         try {
-            bLine = await chatCompletion(api, bPrompt);
+            bRaw = await chatCompletion(api, bPrompt);
         } catch {
             break;
         }
-        bLine = bLine.replace(/^[「"']|[」"']$/g, '').replace(/^.*?[:：]\s*/, '').trim();
-        if (bLine) turns.push({ speaker: 'B', text: bLine });
+        const bParsed = extract(bRaw, b.name);
+        bDelta += bParsed.delta;
+        if (bParsed.text) turns.push({ speaker: 'B', text: bParsed.text });
     }
 
     // A 视角脚本（"我"=A）
@@ -296,32 +320,12 @@ ${labeled()}
         .join('\n');
     const bDetail = flipTranscript(aDetail);
 
-    // 好感增减：best-effort，单独一次轻量打分；失败则 0
-    let aDelta = 0;
-    let bDelta = 0;
-    try {
-        const judgePrompt = `下面是「${a.name}」和「${b.name}」的一段私下对话。请判断这段互动让双方对彼此的好感分别变化多少。
-对话：
-"""
-${labeled()}
-"""
-只输出 JSON：{"aDelta": <-20~20 之间，${a.name}对${b.name}好感变化>, "bDelta": <-20~20 之间，${b.name}对${a.name}好感变化>}`;
-        const raw = await chatCompletion(api, judgePrompt, 0.3);
-        const s = raw.indexOf('{');
-        const e = raw.lastIndexOf('}');
-        if (s > -1 && e > -1) {
-            const parsed = JSON.parse(raw.slice(s, e + 1));
-            aDelta = clampAffinity(parsed.aDelta || 0);
-            bDelta = clampAffinity(parsed.bDelta || 0);
-            // delta 本身限制在 ±20
-            aDelta = Math.max(-20, Math.min(20, aDelta));
-            bDelta = Math.max(-20, Math.min(20, bDelta));
-        }
-    } catch {
-        /* 打分失败不影响对话产出 */
-    }
-
-    return { aDetail, bDetail, aDelta, bDelta };
+    return {
+        aDetail,
+        bDetail,
+        aDelta: Math.max(-20, Math.min(20, aDelta)),
+        bDelta: Math.max(-20, Math.min(20, bDelta)),
+    };
 }
 
 interface RunAgentConversationParams {

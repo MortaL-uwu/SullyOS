@@ -698,7 +698,7 @@ Format:
             const result = await runRealConversation({
                 a: targetChar, b, user: userProfile, api: apiConfig as any,
                 affinityA: contact.affinity, affinityB: bToA?.affinity ?? 0,
-                rounds: 3, existingDetail: existing?.detail, aNote: contact.note, bNote: bToA?.note,
+                existingDetail: existing?.detail, aNote: contact.note, bNote: bToA?.note,
             });
             if (!result.aDetail.trim()) { addToast('对方没有回应…', 'error'); return; }
             await commitConversationSide(targetChar, contact.name, b.id, result.aDetail, result.aDelta, contact.note);

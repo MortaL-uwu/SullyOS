@@ -26,7 +26,7 @@
 | 层 | 能力 | 入口 / 代码 |
 |---|---|---|
 | **P0 骨架** | 联系人模型 + 生成时注入真实角色名单做 **real/npc 甄别** + 通讯录 UI（好感条 / 备注 / 手动加删拉黑）+ 扫描通讯录 | `CheckPhone.handleGenerate('chat'\|'contacts')`、`renderContactsList` / `renderContactDetail` |
-| **P1 真角色双向对话** | **双 LLM**：A 用 A 的 context 发、B 用 **B 自己的 context + 记忆宫殿(query=A 名) + B 的 contextLimit** 回，多轮。镜像进 B 的 `records`；**B 私聊仅当 B 自己 `sendToChat !== false`** 才写。好感 -100..100，跌破 -60 角色自动删友、升过 +60 自动加回，变动播报进机主私聊 | `utils/relationshipChat.ts:runRealConversation`、`CheckPhone.handleRealConversation` / `commitConversationSide` |
+| **P1 真角色双向对话** | **双 LLM**：A 用 A 的 context 发、B 用 **B 自己的 context + 记忆宫殿(query=A 名) + B 的 contextLimit** 回。默认 **1 个往返 = A 发 1 次 + B 回 1 次 = 正好 2 次 LLM 调用**（`rounds` 可调）。好感变化折进各自回复末尾的 `[[Δ:+N]]`，解析后剥掉，**不再额外调用**。镜像进 B 的 `records`；**B 私聊仅当 B 自己 `sendToChat !== false`** 才写。好感 -100..100，跌破 -60 角色自动删友、升过 +60 自动加回，变动播报进机主私聊 | `utils/relationshipChat.ts:runRealConversation`、`CheckPhone.handleRealConversation` / `commitConversationSide` |
 | **P2 AI 玩 AI** | 机主构建 user / 某人的智能体并和它聊，**只读偷窥**，不镜像、不进任何人私聊 | `utils/relationshipChat.ts:runAgentConversation`、`CheckPhone.handleAgentConversation` |
 
 ## 真假甄别怎么做的
@@ -46,5 +46,5 @@
 
 - `runRealConversation` 续写时会把已有 A 视角脚本解析回 turns 续跑，产出**完整脚本**，落库时整段替换原记录。
 - 镜像写入对方 B 用的也是 `updateCharacter(b.id, …)`（函数式合并），不会覆盖 B 的 simLogs。
-- 好感打分是 best-effort 的单独轻量 LLM 调用，失败则 delta=0，不影响对话产出。
+- 好感变化由 A/B 各自在回复末尾用 `[[Δ:+N]]`（-20~20）带出，`extract()` 解析并剥掉标记 —— 不另开 LLM 调用；模型没给则 delta=0。
 - 智能体对话是机主**想象**的产物，故意不进私聊（用户只能偷窥）。
