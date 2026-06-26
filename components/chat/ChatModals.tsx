@@ -107,6 +107,7 @@ interface ChatModalsProps {
     onScheduleReroll?: () => void;
     onScheduleCoverChange?: (dataUrl: string) => void;
     onScheduleStyleChange?: (style: 'lifestyle' | 'mindful') => void;
+    onPlayTheater?: (index: number) => void;
     // Schedule master toggle
     isScheduleFeatureEnabled?: boolean;
     onToggleScheduleFeature?: () => void;
@@ -147,7 +148,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     chatVoiceEnabled, onToggleChatVoice, chatVoiceLang, onSetChatVoiceLang,
     onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable,
     scheduleData, isScheduleGenerating, onScheduleEdit, onScheduleDelete, onScheduleReroll, onScheduleCoverChange,
-    onScheduleStyleChange,
+    onScheduleStyleChange, onPlayTheater,
     isScheduleFeatureEnabled, onToggleScheduleFeature,
     isMemoryPalaceEnabled, isVectorizing, onForceVectorize,
     apiPresets, onAddApiPreset, onSaveEmotion, onClearBuffs,
@@ -927,6 +928,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                 onDelete={onScheduleDelete}
                                 onReroll={onScheduleReroll}
                                 onCoverImageChange={onScheduleCoverChange}
+                                onPlayTheater={onPlayTheater}
                                 isGenerating={isScheduleGenerating}
                             />
                             <p className="text-[10px] text-slate-400 text-center mt-3 leading-relaxed">

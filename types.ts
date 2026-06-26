@@ -464,6 +464,23 @@ export interface RoomNote {
     relatedMessageId?: number; 
 }
 
+/** 小剧场的一拍（one beat）：一行叙述 / 动作 / 台词，emotion 是该行氛围标记（emoji 或短词）。 */
+export interface TheaterLine {
+    emotion?: string;   // 该行的氛围标记，渲染成小标签（一个 emoji 或 2-4 字短词）
+    text: string;       // 这一拍的叙述 / 动作 / 台词
+}
+
+/**
+ * 小剧场（窥视演出）。挂在某个 ScheduleSlot 上：用户点该时段的播放按钮，
+ * 第三人称「上帝视角」生成角色在这个时间点的一小段行为演出，逐行播放。
+ * 生成一次即缓存进 slot，可反复重看，不重复烧 token。
+ */
+export interface SlotTheater {
+    lines: TheaterLine[];
+    mood?: string;        // 整段演出的氛围一句话（可选，展示用）
+    generatedAt: number;
+}
+
 export interface ScheduleSlot {
     startTime: string;    // "08:00"
     activity: string;     // "晨跑"
@@ -471,6 +488,7 @@ export interface ScheduleSlot {
     emoji?: string;       // "🏃"
     location?: string;    // "河边"
     innerThought?: string; // 该时段的内心独白，生成时由AI写好，运行时直接注入
+    theater?: SlotTheater; // 该时段的小剧场（窥视演出），按需生成并缓存
 }
 
 export interface DailySchedule {
