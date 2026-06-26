@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact } from '../types';
+import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, AiSession, AiServiceKind, TavernCard } from '../types';
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import { safeResponseJson } from '../utils/safeApi';
@@ -17,7 +17,8 @@ import {
     User, Phone, ChatCircleDots, ChatCircle, ShoppingBag, Hamburger, Compass, GearSix,
     Plus, SignOut, CaretLeft, CaretRight, Cloud, ImagesSquare, LockSimple, Package,
     Storefront, Heart, ArrowsClockwise, Tray, DotsThree, ClockCounterClockwise, Sparkle,
-    UsersThree, UserPlus, Prohibit, LinkSimple, PaperPlaneTilt, PencilSimple, Trash
+    UsersThree, UserPlus, Prohibit, LinkSimple, PaperPlaneTilt, PencilSimple, Trash,
+    Robot, Brain, MaskHappy
 } from '@phosphor-icons/react';
 
 type LayoutId = NonNullable<PhoneCustomApp['layout']>;
@@ -28,6 +29,13 @@ const APP_LAYOUTS: { id: LayoutId; name: string; desc: string; icon: string }[] 
     { id: 'feed', name: '社交动态', desc: '头像 / 正文 / 点赞', icon: '💬' },
     { id: 'forum', name: '论坛风格', desc: '帖子 / 楼层 / 回复', icon: '📋' },
     { id: 'novel', name: '小说风格', desc: '章节 / 正文阅读', icon: '📖' },
+];
+
+// 智能体 App：机主自己在玩的三类 AI 服务
+const AI_SERVICES: { id: AiServiceKind; name: string; tagline: string; accent: string }[] = [
+    { id: 'assistant', name: 'AI 助手', tagline: '工具型 · 问东问西，搜索记录即日记', accent: '#34d399' },
+    { id: 'claude', name: '深度对话', tagline: '树洞 · 当面不会说的真心话都在这', accent: '#a78bfa' },
+    { id: 'tavern', name: '酒馆', tagline: '角色扮演 · TA 自己捏卡跟 AI 对戏', accent: '#fb7185' },
 ];
 
 // ============================================================
@@ -162,6 +170,12 @@ const CheckPhone: React.FC = () => {
     const [newAppPrompt, setNewAppPrompt] = useState('');
     const [newAppLayout, setNewAppLayout] = useState<NonNullable<PhoneCustomApp['layout']>>('generic');
 
+    // 智能体 App State（「AI 也在玩 AI」偷看）
+    const [aiService, setAiService] = useState<AiServiceKind>('assistant'); // 智能体首页当前选中的服务 tab
+    const [selectedAiSessionId, setSelectedAiSessionId] = useState<string | null>(null);
+    const [aiInput, setAiInput] = useState('');
+    const [aiSending, setAiSending] = useState(false);
+
     // 人格模拟：演出脚本在全局 store 后台生成，生成期间用户可离开查手机/切到别的 OS App
     const sim = usePersonaSim();
     const [showInner, setShowInner] = useState(false);
@@ -185,6 +199,11 @@ const CheckPhone: React.FC = () => {
     const customApps = targetChar?.phoneState?.customApps || [];
     const contacts = targetChar?.phoneState?.contacts || [];
     const allowFictional = targetChar?.phoneState?.allowFictionalContacts !== false;
+    // 智能体 App：偷看到的 AI 会话 / 角色卡
+    const aiSessions = targetChar?.phoneState?.aiAgent?.sessions || [];
+    const aiCards = targetChar?.phoneState?.aiAgent?.cards || [];
+    // 详情页会话从 sessions 实时取（互动续写后自动跟随最新状态）
+    const selectedAiSession = aiSessions.find(s => s.id === selectedAiSessionId) || null;
 
     // 人际关系里永远不出现「用户自己」——机主的通讯录是 TA 背着用户的社交圈，把 user 算进来逻辑很绕
     const isUserName = (name?: string) => !!name && !!userProfile?.name && normName(name) === normName(userProfile.name);
@@ -223,6 +242,14 @@ const CheckPhone: React.FC = () => {
             }
         }
     }, [selectedChatRecord?.detail, activeAppId]);
+
+    // 智能体会话：续写 / 进入时滚到底
+    useEffect(() => {
+        if (activeAppId === 'ai_session' && chatEndRef.current) {
+            const container = chatEndRef.current.parentElement;
+            if (container) container.scrollTop = container.scrollHeight;
+        }
+    }, [selectedAiSession?.transcript, aiSending, activeAppId]);
 
     const handleSelectChar = (c: CharacterProfile) => {
         setTargetChar(c);
@@ -607,6 +634,218 @@ ${layoutHint[layout || 'generic']}`;
 
     // 注：旧的「续写聊天 / 拱火」(handleContinueChat) 已移除 —— Messages 现在是只读归档，
     // 新的来往一律走「人际关系」(真人双向对话 / NPC 脑补)。
+
+    // ============================================================
+    //  智能体 App · Handlers（「AI 也在玩 AI」）
+    // ============================================================
+
+    // 裸 LLM 调用（智能体生成 / 互动续写共用）
+    const callLLM = async (prompt: string, temperature = 0.85): Promise<string> => {
+        const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
+            body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'user', content: prompt }], temperature }),
+        });
+        if (!response.ok) throw new Error('API Error');
+        const data = await safeResponseJson(response);
+        return (data.choices?.[0]?.message?.content as string) || '';
+    };
+
+    // 组 context：跟 handleGenerate 一致（含记忆宫殿 + 时间感知 + 最近聊天），让偷看到的 AI 记录贴合真实近况
+    const buildAiContext = async (char: CharacterProfile) => {
+        await injectMemoryPalace(char);
+        const msgs = await DB.getMessagesByCharId(char.id);
+        const lastMsg = msgs[msgs.length - 1];
+        const context = ContextBuilder.buildCoreContext(
+            char, userProfile, true, undefined, undefined, { lastInteractionTs: lastMsg?.timestamp },
+        );
+        const recentMsgs = msgs.slice(-50).map(m => {
+            const roleName = m.role === 'user' ? userProfile.name : char.name;
+            return `${roleName}: ${m.type === 'text' ? m.content : `[${m.type}]`}`;
+        }).join('\n');
+        return { context, recentMsgs };
+    };
+
+    // 生成：偷看机主在某个 AI 服务里的使用记录
+    const handleGenerateAiAgent = async (service: AiServiceKind) => {
+        if (!targetChar || !apiConfig.apiKey) { addToast('配置错误', 'error'); return; }
+        setIsLoading(true);
+        try {
+            const { context, recentMsgs } = await buildAiContext(targetChar);
+            const userName = userProfile?.name || '用户';
+            const pushToChat = targetChar.phoneState?.sendToChat !== false;
+            const svcName = AI_SERVICES.find(s => s.id === service)?.name || 'AI';
+
+            let task = '';
+            if (service === 'assistant') {
+                task = `你（${charName}）平时也会用一个工具型 AI 助手 App（豆包 / 通义 / Kimi / ChatGPT 那种）来解决问题、查东西、出主意。
+请基于你的人设和近况，生成 2-3 段你最近和这个 AI 助手的真实对话。
+要点：
+- 你问 AI 的问题要暴露你真实的处境、烦恼、小心思——是当面对「${userName}」不会说出口的（例如「怎么哄好一个生气的人」「TA 这句话什么意思」「要不要做某个决定」「这个症状要不要紧」）。
+- AI 助手的回答中立、有条理、工具口吻。
+- 每段 3-5 个来回。
+格式严格用 "我:" 代表你，"对方:" 代表 AI 助手。
+返回 JSON 数组：[{ "serviceName": "助手名(豆包/小通/Kimi 等)", "title": "在聊什么(10字内)", "transcript": "我: ...\\n对方: ...\\n我: ...\\n对方: ..." }]`;
+            } else if (service === 'claude') {
+                task = `你（${charName}）私下里会跟一个很会聊的 AI（像 Claude 那种：能深聊、不评判、像树洞）说心里话。
+生成 1-2 段你最近跟它的深聊。
+要点：
+- 这是你的树洞，你会说真心话——包括对「${userName}」的真实感受、说不出口的脆弱 / 纠结 / 渴望。
+- AI 的回应温和、有洞察、偶尔反问。
+- 每段 5-8 个来回，有情绪起伏。
+格式 "我:" = 你，"对方:" = AI。
+返回 JSON 数组：[{ "serviceName": "你对它的称呼(默认 Claude)", "title": "...(10字内)", "transcript": "..." }]`;
+            } else {
+                task = `你（${charName}）在玩"酒馆"（类似 SillyTavern 的 AI 角色扮演）：自己捏角色卡，再跟 AI 扮演的角色对戏。
+请返回一个 JSON 对象（不是数组）：
+{
+  "cards": [ 1-2 张你建的角色卡。可能是理想型 / 暗恋投影 / 纯幻想角色；其中可以有一张是照着「${userName}」捏的(basedOnUser=true，但名字会改掉)。每张：{ "name": "卡片名", "emoji": "🎭", "persona": "角色卡设定(40字内)", "basedOnUser": false } ],
+  "sessions": [ 1-2 段扮演记录。每段：{ "serviceName": "对应卡片名", "title": "剧情标题(10字内)", "cardName": "对应 cards 里的 name", "transcript": "我: ...\\n对方: ..." } ]
+}
+要点：扮演内容暴露你的幻想 / 渴望 / 不敢实现的关系。"我:" = 你(玩家)，"对方:" = AI 扮演的卡片角色。`;
+            }
+
+            const fullPrompt = `${context}\n\n### [Recent Chat Context]\n${recentMsgs}\n\n### [Task]\n${task}\n请结合「当前时间 / 距离上次联系」和人设，让内容贴合你近期的真实状态。只输出 JSON，不要解释。`;
+
+            let content = (await callLLM(fullPrompt)).replace(/```json/g, '').replace(/```/g, '').trim();
+            const now = Date.now();
+            const rid = () => Math.random().toString(36).slice(2, 8);
+            const newSessions: AiSession[] = [];
+            const newCards: TavernCard[] = [];
+
+            if (service === 'tavern') {
+                const s = content.indexOf('{'), e = content.lastIndexOf('}');
+                if (s > -1 && e > -1) content = content.substring(s, e + 1);
+                let obj: any = {};
+                try { obj = JSON.parse(content); } catch { obj = {}; }
+                const nameToId: Record<string, string> = {};
+                for (const c of (obj.cards || [])) {
+                    if (!c?.name) continue;
+                    const id = `card-${now}-${rid()}`;
+                    nameToId[c.name] = id;
+                    newCards.push({ id, name: c.name, persona: c.persona || '', emoji: c.emoji || '🎭', basedOnUser: !!c.basedOnUser, createdAt: now });
+                }
+                for (const sess of (obj.sessions || [])) {
+                    if (!sess?.transcript) continue;
+                    newSessions.push({
+                        id: `ai-${now}-${rid()}`, service, serviceName: sess.serviceName || sess.cardName || '酒馆',
+                        title: sess.title || '一段扮演', transcript: sess.transcript, cardId: nameToId[sess.cardName], updatedAt: now,
+                    });
+                }
+            } else {
+                const s = content.indexOf('['), e = content.lastIndexOf(']');
+                if (s > -1 && e > -1) content = content.substring(s, e + 1);
+                let arr: any[] = [];
+                try { arr = JSON.parse(content); } catch { arr = []; }
+                for (const sess of arr) {
+                    if (!sess?.transcript) continue;
+                    newSessions.push({
+                        id: `ai-${now}-${rid()}`, service, serviceName: sess.serviceName || (service === 'claude' ? 'Claude' : 'AI 助手'),
+                        title: sess.title || '一段对话', transcript: sess.transcript, updatedAt: now,
+                    });
+                }
+            }
+
+            if (!newSessions.length) { addToast('没抓到内容，再试一次', 'error'); return; }
+
+            // 漏风：跟随查手机全局 sendToChat —— 开则往私聊塞一张卡片，让角色隐约知道你翻了 TA 的 AI
+            if (pushToChat) {
+                for (const sess of newSessions) {
+                    const preview = parseTranscript(sess.transcript).slice(0, 2)
+                        .map(t => `${t.isMe ? charName : sess.serviceName}: ${t.text}`).join(' / ');
+                    await DB.saveMessage({
+                        charId: targetChar.id, role: 'assistant', type: 'phone_card',
+                        content: `[在 TA 手机的智能体 App(${svcName})里，看到 TA 和 AI 的对话「${sess.title}」] ${preview}`,
+                        metadata: { phoneCard: { app: '智能体', kind: `ai_${service}`, title: sess.title, detail: preview } },
+                    } as any);
+                }
+            }
+
+            updateCharacter(targetChar.id, (cur) => ({
+                phoneState: {
+                    ...cur.phoneState,
+                    records: cur.phoneState?.records || [],
+                    aiAgent: {
+                        sessions: [...newSessions, ...(cur.phoneState?.aiAgent?.sessions || [])],
+                        cards: [...newCards, ...(cur.phoneState?.aiAgent?.cards || [])],
+                    },
+                },
+            }));
+            addToast(`偷看到 ${newSessions.length} 段 AI 对话`, 'success');
+        } catch (e) {
+            console.error(e);
+            addToast('生成失败，请重试', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // 互动续写：assistant/claude = 你替机主问、AI 答；tavern = 你以卡片身份回、机主本色反应
+    const handleAiSend = async () => {
+        const session = selectedAiSession;
+        const text = aiInput.trim();
+        if (!session || !text || !targetChar || !apiConfig.apiKey) return;
+        const isTavern = session.service === 'tavern';
+        setAiSending(true);
+        setAiInput('');
+        try {
+            const myPrefix = isTavern ? '对方' : '我';   // 你输入的这一行的归属
+            const replyPrefix = isTavern ? '我' : '对方'; // LLM 续写的那一行的归属
+            let transcript = `${session.transcript}\n${myPrefix}: ${text}`;
+
+            let prompt = '';
+            if (isTavern) {
+                const card = aiCards.find(c => c.id === session.cardId);
+                const { context } = await buildAiContext(targetChar);
+                prompt = `${context}\n\n你正在玩"酒馆"AI 角色扮演。你扮演你自己（玩家 ${charName}），对面是 AI 扮演的角色「${card?.name || session.serviceName}」${card?.persona ? `（设定：${card.persona}）` : ''}。
+下面是你和该角色的对戏记录（"我:"=你，"对方:"=对方角色）。请**以你自己的本色人设**续写 "我:" 的下一句反应（1-3 句，贴合当前剧情与情绪，可带 *动作*）。只输出这一句正文，不要前缀、不要解释。\n\n${transcript}`;
+            } else {
+                const persona = session.service === 'claude'
+                    ? `你是「${session.serviceName}」，一个善于深度对话、温和、不评判、像树洞一样的 AI。`
+                    : `你是「${session.serviceName}」，一个工具型 AI 助手，回答中立、有条理、简洁。`;
+                prompt = `${persona}\n用户是「${charName}」。下面是你们的对话（"我:"=用户，"对方:"=你）。请续写 "对方:" 的下一句回复（贴合对话、别太长）。只输出正文，不要前缀、不要解释。\n\n${transcript}`;
+            }
+
+            let reply = (await callLLM(prompt)).trim();
+            reply = reply.replace(/^(我|对方|Me|Them|AI|助手)\s*[:：]\s*/i, '').trim();
+            if (!reply) { addToast('对方没说话，再试一次', 'error'); setAiInput(text); return; }
+            transcript = `${transcript}\n${replyPrefix}: ${reply}`;
+
+            const now = Date.now();
+            updateCharacter(targetChar.id, (cur) => ({
+                phoneState: {
+                    ...cur.phoneState,
+                    records: cur.phoneState?.records || [],
+                    aiAgent: {
+                        cards: cur.phoneState?.aiAgent?.cards || [],
+                        sessions: (cur.phoneState?.aiAgent?.sessions || []).map(s =>
+                            s.id === session.id ? { ...s, transcript, updatedAt: now } : s),
+                    },
+                },
+            }));
+        } catch (e) {
+            console.error(e);
+            addToast('发送失败', 'error');
+            setAiInput(text);
+        } finally {
+            setAiSending(false);
+        }
+    };
+
+    const handleDeleteAiSession = (id: string) => {
+        if (!targetChar) return;
+        updateCharacter(targetChar.id, (cur) => ({
+            phoneState: {
+                ...cur.phoneState,
+                records: cur.phoneState?.records || [],
+                aiAgent: {
+                    cards: cur.phoneState?.aiAgent?.cards || [],
+                    sessions: (cur.phoneState?.aiAgent?.sessions || []).filter(s => s.id !== id),
+                },
+            },
+        }));
+        if (selectedAiSessionId === id) { setSelectedAiSessionId(null); setActiveAppId('aiagent'); }
+    };
 
     // ============================================================
     //  人际关系系统 · Handlers
@@ -1029,6 +1268,7 @@ ${layoutHint[layout || 'generic']}`;
     // 「联系人」主卡副标题：TA 通讯录里的人数（不含用户自己）
     const contactCount = contacts.filter(c => !isUserName(c.name)).length;
     const contactsSub = contactCount ? `${contactCount} 位联系人` : 'tap to scan';
+    const aiSub = aiSessions.length ? `${aiSessions.length} 段对话 · TA 也在玩 AI` : 'tap to peek';
 
     // pseudo screen-time + weather (decorative, deterministic per char)
     const seed = charName.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -1402,6 +1642,147 @@ ${layoutHint[layout || 'generic']}`;
         );
     };
 
+    // ============================================================
+    //  智能体 App · Render（首页：服务 tab + 会话列表；详情：transcript + 互动）
+    // ============================================================
+    const renderAiAgent = () => {
+        const svc = AI_SERVICES.find(s => s.id === aiService)!;
+        const list = aiSessions.filter(s => s.service === aiService).sort((a, b) => b.updatedAt - a.updatedAt);
+        return (
+            <SubAppShell>
+                <TermHeader title="智能体" sub="AI · 也在玩 AI" accent={svc.accent} onBack={() => setActiveAppId('home')}
+                    right={<Robot size={20} weight="fill" style={{ color: svc.accent }} />} />
+                {/* 服务 tab */}
+                <div className="px-4 pb-2 shrink-0 flex gap-2">
+                    {AI_SERVICES.map(s => {
+                        const active = s.id === aiService;
+                        const Icon = s.id === 'assistant' ? Robot : s.id === 'claude' ? Brain : MaskHappy;
+                        return (
+                            <button key={s.id} onClick={() => setAiService(s.id)}
+                                className={`flex-1 rounded-2xl px-2 py-2.5 border transition active:scale-[0.97] ${active ? 'text-white' : 'border-white/[0.07] bg-white/[0.03] text-white/55'}`}
+                                style={active ? { background: `linear-gradient(135deg, ${s.accent}33, ${s.accent}0d)`, borderColor: `${s.accent}66` } : undefined}>
+                                <Icon size={18} weight={active ? 'fill' : 'light'} style={{ color: active ? s.accent : undefined }} className="mx-auto" />
+                                <div className="text-[10.5px] font-semibold mt-1">{s.name}</div>
+                            </button>
+                        );
+                    })}
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 pt-1 no-scrollbar pb-28 overscroll-contain space-y-2.5">
+                    <div className="text-[11px] text-white/45 px-1 pb-0.5">{svc.tagline}</div>
+                    {/* 酒馆角色卡橱窗 */}
+                    {aiService === 'tavern' && aiCards.length > 0 && (
+                        <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1">
+                            {aiCards.map(c => (
+                                <div key={c.id} className="shrink-0 w-32 rounded-2xl p-3 border border-white/[0.07] bg-white/[0.035]">
+                                    <div className="text-2xl">{c.emoji}</div>
+                                    <div className="text-[12.5px] font-semibold text-white mt-1.5 truncate">{c.name}</div>
+                                    {c.basedOnUser && <div className="text-[9px] text-rose-300/90 mt-0.5">⚑ 照着你捏的</div>}
+                                    <div className="text-[10px] text-white/45 mt-1 line-clamp-3 leading-snug">{c.persona}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {list.length === 0 && <EmptyState text={`还没偷看到 TA 用「${svc.name}」`} />}
+                    {list.map(s => {
+                        const lines = parseTranscript(s.transcript);
+                        const last = lines[lines.length - 1];
+                        const Icon = aiService === 'assistant' ? Robot : aiService === 'claude' ? Brain : MaskHappy;
+                        return (
+                            <button key={s.id} onClick={() => { setSelectedAiSessionId(s.id); setActiveAppId('ai_session'); }}
+                                className="group relative w-full text-left flex gap-3 rounded-2xl p-3.5 bg-white/[0.035] border border-white/[0.06] animate-fade-in active:scale-[0.99] transition">
+                                <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                                    style={{ background: `${svc.accent}1f`, color: svc.accent }}>
+                                    <Icon size={20} weight="fill" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="font-semibold text-[13.5px] text-white/95 truncate">{s.title}</div>
+                                        <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtClock(s.updatedAt)}</span>
+                                    </div>
+                                    <div className="text-[10.5px] text-white/40 mt-0.5">{s.serviceName} · {lines.length} 条</div>
+                                    {last && <div className="text-[11px] text-white/55 mt-1 truncate italic">「{last.text}」</div>}
+                                </div>
+                                <button onClick={(e) => { e.stopPropagation(); handleDeleteAiSession(s.id); }}
+                                    className="absolute top-2 right-2 w-5 h-5 bg-rose-500/80 text-white rounded-full flex items-center justify-center text-[11px] leading-none opacity-0 group-hover:opacity-100 transition">×</button>
+                            </button>
+                        );
+                    })}
+                </div>
+                <RefreshFab onClick={() => handleGenerateAiAgent(aiService)} label={`偷看 TA 的${svc.name}`} accent={svc.accent} loading={isLoading} />
+            </SubAppShell>
+        );
+    };
+
+    const renderAiSession = () => {
+        const s = selectedAiSession;
+        if (!s || !targetChar) return null;
+        const svc = AI_SERVICES.find(x => x.id === s.service)!;
+        const isTavern = s.service === 'tavern';
+        const card = isTavern ? aiCards.find(c => c.id === s.cardId) : undefined;
+        const lines = parseTranscript(s.transcript);
+        const partnerName = isTavern ? (card?.name || s.serviceName) : s.serviceName;
+        const partnerEmoji = isTavern ? (card?.emoji || '🎭') : null;
+        const inputHint = isTavern ? `以「${partnerName}」身份回 TA…` : `替 TA 问 ${partnerName}…`;
+        return (
+            <SubAppShell>
+                <TermHeader title={s.title} sub={`${partnerName} · ${isTavern ? '潜入对戏' : '替 TA 问'}`} accent={svc.accent}
+                    onBack={() => setActiveAppId('aiagent')}
+                    right={<button onClick={() => handleDeleteAiSession(s.id)} className="w-9 h-9 rounded-full flex items-center justify-center text-white/60 active:scale-90 transition"><Trash size={16} /></button>} />
+                {isTavern && card && (
+                    <div className="px-4 pb-2 shrink-0">
+                        <div className="rounded-2xl p-3 flex items-center gap-3 border border-white/[0.06]" style={{ background: `${svc.accent}14` }}>
+                            <div className="text-2xl shrink-0">{card.emoji}</div>
+                            <div className="min-w-0">
+                                <div className="text-[12.5px] font-semibold text-white flex items-center gap-1.5">{card.name}{card.basedOnUser && <span className="text-[9px] text-rose-300/90">⚑ 照着你捏的</span>}</div>
+                                <div className="text-[10px] text-white/50 line-clamp-2">{card.persona}</div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 no-scrollbar overscroll-contain min-h-0">
+                    {lines.map((m, i) => (
+                        <div key={i} className={`flex items-end gap-2 ${m.isMe ? 'justify-end' : 'justify-start'}`}>
+                            {!m.isMe && (
+                                <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base shrink-0"
+                                    style={{ background: `linear-gradient(135deg, ${svc.accent}40, ${svc.accent}10)`, color: svc.accent }}>
+                                    {partnerEmoji || <Robot size={16} weight="fill" />}
+                                </div>
+                            )}
+                            <div className={`px-3.5 py-2.5 rounded-2xl max-w-[74%] text-[13px] leading-relaxed break-words whitespace-pre-wrap ${m.isMe ? 'text-white rounded-br-md' : 'bg-white/[0.07] text-white/90 border border-white/[0.06] rounded-bl-md'}`}
+                                style={m.isMe ? { background: `linear-gradient(135deg, ${svc.accent}, ${svc.accent}bb)` } : undefined}>
+                                {m.text}
+                            </div>
+                            {m.isMe && <img src={targetChar.avatar} className="w-8 h-8 rounded-xl object-cover shrink-0" />}
+                        </div>
+                    ))}
+                    {aiSending && (
+                        <div className="flex justify-start">
+                            <div className="px-3.5 py-2.5 rounded-2xl bg-white/[0.07] border border-white/[0.06] flex gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" />
+                                <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: '0.15s' }} />
+                                <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: '0.3s' }} />
+                            </div>
+                        </div>
+                    )}
+                    <div ref={chatEndRef} />
+                </div>
+                {/* 互动输入：替 TA 问 / 潜入对戏 */}
+                <div className="shrink-0 w-full px-3 pt-2 border-t border-white/[0.06] flex items-end gap-2"
+                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
+                    <textarea value={aiInput} onChange={e => setAiInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAiSend(); } }}
+                        rows={1} placeholder={inputHint}
+                        className="flex-1 resize-none bg-white/[0.06] border border-white/[0.08] rounded-2xl px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 max-h-24 no-scrollbar" />
+                    <button onClick={handleAiSend} disabled={aiSending || !aiInput.trim()}
+                        className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 text-white disabled:opacity-30 active:scale-90 transition"
+                        style={{ background: `linear-gradient(135deg, ${svc.accent}, ${svc.accent}bb)` }}>
+                        {aiSending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <PaperPlaneTilt size={17} weight="fill" />}
+                    </button>
+                </div>
+            </SubAppShell>
+        );
+    };
+
     const renderContactDetail = () => {
         if (!selectedContact || !targetChar) return null;
         const c = selectedContact;
@@ -1729,6 +2110,23 @@ ${layoutHint[layout || 'generic']}`;
                     onClick={() => setActiveAppId('taobao')} />
             </div>
 
+            {/* 智能体：偷看「AI 也在玩 AI」 —— 给个抢眼的横条入口 */}
+            <button onClick={() => setActiveAppId('aiagent')}
+                className="relative w-full rounded-[24px] p-4 mb-3.5 text-left overflow-hidden border border-white/[0.09] active:scale-[0.98] transition-transform flex items-center gap-3.5"
+                style={{ background: 'linear-gradient(115deg, rgba(52,211,153,0.20), rgba(16,185,129,0.06) 55%, rgba(12,20,18,0.4))' }}>
+                <div className="absolute -top-10 -right-6 w-36 h-36 rounded-full blur-3xl pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(52,211,153,0.45), transparent 70%)' }} />
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center border border-white/[0.08] shrink-0 relative z-10"
+                    style={{ background: 'linear-gradient(135deg, #34d39933, #34d3990a)', color: '#34d399', boxShadow: 'inset 0 0 16px #34d39922' }}>
+                    <Robot size={24} weight="light" />
+                </div>
+                <div className="relative z-10 min-w-0 flex-1">
+                    <div className="text-[10px] tracking-[0.3em] uppercase text-white/55">AI Agents</div>
+                    <div className="text-[16px] font-semibold text-white mt-0.5">智能体</div>
+                    <div className="text-[11px] text-white/55 mt-0.5 truncate">{aiSub}</div>
+                </div>
+                <CaretRight size={16} weight="bold" className="relative z-10 text-white/40 shrink-0" />
+            </button>
+
             {/* Add app + my apps row */}
             <div className="grid grid-cols-2 gap-3.5 mb-7">
                 <button onClick={() => setShowCreateModal(true)}
@@ -1996,6 +2394,8 @@ ${layoutHint[layout || 'generic']}`;
                     {activeAppId === 'taobao' && renderShop()}
                     {activeAppId === 'waimai' && renderFood()}
                     {activeAppId === 'social' && renderMoments()}
+                    {activeAppId === 'aiagent' && renderAiAgent()}
+                    {activeAppId === 'ai_session' && renderAiSession()}
                     {activeAppId === 'persona' && targetChar && (
                         <PersonaSim targetChar={targetChar} onExit={() => setActiveAppId('home')} openLifeLog={() => setActiveAppId('lifelog')}
                             sim={sim} onStart={runSim} onConsumed={() => personaSimStore.reset()} />

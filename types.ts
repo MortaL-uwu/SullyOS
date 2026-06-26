@@ -640,6 +640,45 @@ export interface PhoneContact {
     createdAt: number;
 }
 
+/**
+ * 智能体 App · AI 服务种类。机主（被查手机的角色）自己也在玩 AI：
+ * - assistant：工具型 AI 助手（豆包/通义/ChatGPT 那种），问实用 & 尴尬问题。
+ * - claude：树洞型深度对话 AI（Claude 那种），说当面不会说的真心话。
+ * - tavern：酒馆 / SillyTavern 式 AI 角色扮演，自己捏卡跟 AI 对戏。
+ */
+export type AiServiceKind = 'assistant' | 'claude' | 'tavern';
+
+/** 智能体 App · 一段机主与 AI 的会话（被偷看到的记录） */
+export interface AiSession {
+    id: string;
+    service: AiServiceKind;
+    /** 服务/对象名：助手名(豆包) / 树洞名(Claude) / 酒馆卡片名 */
+    serviceName: string;
+    /** 会话标题（在聊什么） */
+    title: string;
+    /**
+     * 对话脚本，「我:/对方:」逐行（走 parseTranscript 无损解析）。
+     * assistant/claude：我=机主，对方=AI。
+     * tavern：我=机主(玩家)，对方=AI 扮演的卡片角色。
+     */
+    transcript: string;
+    /** tavern：关联的角色卡 id */
+    cardId?: string;
+    updatedAt: number;
+}
+
+/** 智能体 App · 机主在酒馆里建的角色卡 */
+export interface TavernCard {
+    id: string;
+    name: string;
+    /** 角色卡设定 */
+    persona: string;
+    emoji: string;
+    /** 是否照着用户（查手机的人）捏的——最偷窥感的一项 */
+    basedOnUser?: boolean;
+    createdAt: number;
+}
+
 // 「人格模拟」演出运行时脚本模型（生成后驱动播放，也用于生活记录重播）
 export type SimBeatKind = 'lock' | 'thought' | 'notification' | 'app' | 'flashback' | 'end';
 export interface SimBeat {
@@ -1870,6 +1909,10 @@ export interface CharacterProfile {
       sendToChat?: boolean;    // 查手机生成的内容是否同步到私聊（默认 true）
       contacts?: PhoneContact[]; // 人际关系系统：机主的通讯录
       allowFictionalContacts?: boolean; // 是否允许生成虚构 NPC 联系人；false=只与神经链接里的真实角色来往（默认 true）
+      aiAgent?: {                 // 智能体 App：偷看到的「AI 也在玩 AI」记录
+          sessions: AiSession[];
+          cards?: TavernCard[];  // 酒馆里建的角色卡
+      };
   };
 
   // 「梦的残页」：在小屋里偷看到的梦境演出留存（角色不记得，仅供用户回看）
