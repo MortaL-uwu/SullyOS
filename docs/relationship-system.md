@@ -47,9 +47,19 @@
 | `apps/CheckPhone.tsx` | 通讯录 UI + 全部 handler + 落库/镜像 |
 | `types.ts` | `PhoneContact` / `PhoneEvidence.contactId` / `phoneState.contacts` |
 
+## UI 命名
+
+- 该系统在「查手机」首页的入口卡叫 **「联系人」**（占据原 Message 主卡位）；旧的 Message 一对一聊天已废弃，收进「联系人」页里做一个不起眼的「旧版聊天归档」入口。内部代码/上下文里仍可能出现「人际关系」字样（语义等价）。
+
+## 对话脚本格式（重要 · 多行不丢/不错位）
+
+- 脚本统一是「我:/对方:」逐行格式。一条消息可能跨多行（模型连发几条），**存库时每一行都补回说话人前缀**（`runRealConversation` 的 `lineify` / `runNpcConversation` 走 `serializeTurns(parseTranscript())`）。
+- 解析一律走 `parseTranscript()`：无前缀的续行**继承上一条说话人**，不会被误判给对方（修复「A 发的消息 UI 分给 B」）。渲染（`renderChatDetail`/`renderContactDetail`）、翻转（`flipTranscript`）、续写回解析都用它，保证无损。
+- `upsertContact` 合并时**只覆盖有值的字段**，且不动已有非空 `note`——扫描通讯录/对话回填不会把用户手填的备注抹掉（修复「角色不看备注」）。备注在 prompt 里以「必须遵守的已确立事实」注入。
+
 ## 注意
 
-- `runRealConversation` 续写时会把已有 A 视角脚本解析回 turns 续跑，产出**完整脚本**，落库时整段替换原记录。
+- `runRealConversation` 续写时会把已有 A 视角脚本解析回 turns 续跑（`parseTranscript` 无损），产出**完整脚本**，落库时整段替换原记录。
 - 镜像写入对方 B 用的也是 `updateCharacter(b.id, …)`（函数式合并），不会覆盖 B 的 simLogs。
 - 好感变化由 A/B 各自在回复末尾用 `[[Δ:+N]]`（-20~20）带出，`extract()` 解析并剥掉标记 —— 不另开 LLM 调用；模型没给则 delta=0。
 - 角色**自发**的关系变动（好感阈值触发自动加删友）会播报「我把 XX 删了」进机主私聊；**用户手动**删/拉黑则落 `role:'system'` 提示让角色知道是用户干的 —— 两者区分开。

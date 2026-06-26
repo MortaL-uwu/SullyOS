@@ -8,7 +8,7 @@ import { safeResponseJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
     runRealConversation, runNpcConversation, upsertContact, matchRealChar,
-    clampAffinity, normName, flipTranscript,
+    clampAffinity, normName, flipTranscript, parseTranscript,
 } from '../utils/relationshipChat';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
@@ -328,9 +328,9 @@ const CheckPhone: React.FC = () => {
                     : [...recs, { id: `rec-${now}-${Math.random()}`, type: 'chat', title: targetChar.name, detail: flipped, timestamp: now, contactId: cid }];
                 return { phoneState: { ...cur.phoneState, contacts: cs, records: nextRecs } };
             });
-            addToast(`已绑定到人际关系 · 已与 ${linkedChar.name} 双向同步`, 'success');
+            addToast(`已绑定到联系人 · 已与 ${linkedChar.name} 双向同步`, 'success');
         } else {
-            addToast('已绑定到人际关系（虚构联系人）', 'success');
+            addToast('已绑定到联系人（虚构联系人）', 'success');
         }
     };
 
@@ -652,7 +652,7 @@ ${layoutHint[layout || 'generic']}`;
                 content: `[人际关系变动] ${userProfile.name} 在偷看你手机时，把你和「${contact.name}」的好友关系${verb}了。你察觉到是 TA 干的。`,
                 metadata: {
                     phoneCard: {
-                        app: '人际关系',
+                        app: '联系人',
                         kind: 'relationship',
                         action: status,          // 'deleted' | 'blocked'
                         actor: 'user',
@@ -875,8 +875,9 @@ ${layoutHint[layout || 'generic']}`;
 
     const momentsSub = socialRecords.length ? `${socialRecords.length} new posts` : 'nothing shared';
     const taobaoSub = orderRecords.length ? `${orderRecords.length} items in cart` : 'cart is empty';
-    // Messages 已是只读归档：不再有「未读」概念
-    const messageSub = chatRecords.length === 0 ? 'archive · empty' : `archive · ${chatRecords.length} threads`;
+    // 「联系人」主卡副标题：TA 通讯录里的人数（不含用户自己）
+    const contactCount = contacts.filter(c => !isUserName(c.name)).length;
+    const contactsSub = contactCount ? `${contactCount} 位联系人` : 'tap to scan';
 
     // pseudo screen-time + weather (decorative, deterministic per char)
     const seed = charName.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -921,13 +922,14 @@ ${layoutHint[layout || 'generic']}`;
                 {/* 归档说明：旧的 Messages 模式已不再更新，新的对话走「人际关系」 */}
                 <div className="px-4 pt-1 pb-2 shrink-0">
                     <div className="rounded-xl px-3 py-2 bg-white/[0.04] border border-white/[0.07] text-[11px] text-white/55 leading-relaxed">
-                        这是旧版聊天归档，已停止更新。新的来往请在「人际关系」里发起；可把某段记录绑定过去。
+                        这是旧版聊天归档，已停止更新。新的来往请在「联系人」里发起；可把某段记录绑定过去。
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 pt-1 space-y-2.5 no-scrollbar pb-28 overscroll-contain">
                     {list.length === 0 && <EmptyState text="归档里没有聊天记录" />}
                     {list.map(r => {
-                        const last = r.detail.split('\n').pop() || '...';
+                        const segs = parseTranscript(r.detail);
+                        const last = segs.length ? segs[segs.length - 1].text : '...';
                         const av = contactOfRecord(r) ? contactAvatar(contactOfRecord(r)!) : undefined;
                         return (
                             <div key={r.id} onClick={() => { setSelectedChatRecord(r); setTranscriptExpanded(false); setActiveAppId('chat_detail'); }}
@@ -945,7 +947,7 @@ ${layoutHint[layout || 'generic']}`;
                                         <span className="font-semibold text-[13.5px] text-white/95 truncate">{r.title}</span>
                                         <span className="text-[10px] text-white/35 tabular-nums shrink-0">{fmtClock(r.timestamp)}</span>
                                     </div>
-                                    <div className="text-[11.5px] text-white/45 truncate mt-0.5">{last.replace(/^(我|对方|Me|Them)[:：]\s*/, '')}</div>
+                                    <div className="text-[11.5px] text-white/45 truncate mt-0.5">{last}</div>
                                 </div>
                                 <button onClick={(e) => { e.stopPropagation(); askConfirm({
                                     title: '删除这段聊天记录？', desc: `「${r.title}」的这段归档记录将被删除。`,
@@ -963,12 +965,8 @@ ${layoutHint[layout || 'generic']}`;
     const renderChatDetail = () => {
         if (!selectedChatRecord || !targetChar) return null;
         const accent = '#8b9cff';
-        const lines = selectedChatRecord.detail.split('\n').filter(l => l.trim());
-        const parsedLines = lines.map(line => {
-            const isMe = line.startsWith('我') || line.startsWith('Me');
-            const content = line.replace(/^(我|Me|对方|Them|[\w一-龥]+)[:：]\s*/, '');
-            return { isMe, content };
-        });
+        // 带前缀继承的解析：多行消息(连发几条)的续行跟随上一条说话人，不再错位给对方。
+        const parsedLines = parseTranscript(selectedChatRecord.detail).map(t => ({ isMe: t.isMe, content: t.text }));
         // 渲染保护：长 transcript 默认只渲染最新 50 行，避免一次性塞太多气泡把页面卡爆（同 chatapp）
         const RENDER_CAP = 50;
         const hiddenCount = transcriptExpanded ? 0 : Math.max(0, parsedLines.length - RENDER_CAP);
@@ -1015,15 +1013,15 @@ ${layoutHint[layout || 'generic']}`;
                 {/* 归档只读：不再生成后续；改为「绑定到人际关系」（真人会双向同步） */}
                 <div className="shrink-0 w-full p-4 pb-6">
                     <button onClick={() => askConfirm({
-                        title: '绑定到人际关系？',
+                        title: '绑定到联系人？',
                         desc: linkedReal
                             ? `已与神经链接里的「${selectedChatRecord.title}」匹配，绑定后这段对话会同步到对方手机。`
-                            : `将把「${selectedChatRecord.title}」加进人际关系（未匹配到真实角色，按虚构联系人处理）。`,
+                            : `将把「${selectedChatRecord.title}」加进联系人（未匹配到真实角色，按虚构联系人处理）。`,
                         confirmLabel: '绑定',
                         onConfirm: () => handleBindRecordToRelationship(selectedChatRecord),
                     })}
                         className="w-full py-3 rounded-2xl text-[13px] font-semibold text-white/90 bg-white/[0.06] border border-white/[0.08] active:scale-[0.99] transition flex items-center justify-center gap-2">
-                        <LinkSimple size={16} weight="bold" /> 绑定到人际关系
+                        <LinkSimple size={16} weight="bold" /> 绑定到联系人
                     </button>
                 </div>
             </SubAppShell>
@@ -1193,7 +1191,7 @@ ${layoutHint[layout || 'generic']}`;
         const list = contacts.filter(c => !isUserName(c.name)).sort((a, b) => (b.lastInteraction || b.createdAt) - (a.lastInteraction || a.createdAt));
         return (
             <SubAppShell>
-                <TermHeader title="人际关系" sub={`${list.length} contacts`} accent={accent} onBack={() => setActiveAppId('home')}
+                <TermHeader title="联系人" sub={`${list.length} contacts`} accent={accent} onBack={() => setActiveAppId('home')}
                     right={<button onClick={() => setShowContactModal(true)} className="text-white/80 active:scale-90 transition"><UserPlus size={20} weight="bold" /></button>} />
                 {/* 约束开关：是否允许虚构 NPC */}
                 <div className="px-4 pt-1 pb-2 shrink-0">
@@ -1203,6 +1201,13 @@ ${layoutHint[layout || 'generic']}`;
                         <span className="relative w-9 h-5 rounded-full transition" style={{ background: allowFictional ? accent : 'rgba(255,255,255,0.15)' }}>
                             <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: allowFictional ? '18px' : '2px' }} />
                         </span>
+                    </button>
+                    {/* 旧版 Message 聊天归档：废弃 App，收在这里做不起眼的入口 */}
+                    <button onClick={openChat}
+                        className="w-full flex items-center gap-2 mt-1.5 px-3 py-1.5 text-white/35 active:text-white/60 transition">
+                        <ChatCircleDots size={13} weight="light" className="shrink-0" />
+                        <span className="text-[10.5px] flex-1 text-left">旧版聊天归档{chatRecords.length ? ` · ${chatRecords.length}` : ''}</span>
+                        <CaretRight size={11} weight="bold" className="shrink-0" />
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 pt-2 space-y-2.5 no-scrollbar pb-28 overscroll-contain">
@@ -1254,11 +1259,7 @@ ${layoutHint[layout || 'generic']}`;
         const isReal = c.kind === 'real' && !!c.linkedCharId;
         const av = contactAvatar(c);
         const rec = records.find(r => r.type === 'chat' && (r.contactId === c.id || normName(r.title) === normName(c.name)));
-        const lines = rec ? rec.detail.split('\n').filter(l => l.trim()) : [];
-        const parsed = lines.map(line => {
-            const isMe = line.startsWith('我') || line.startsWith('Me');
-            return { isMe, content: line.replace(/^(我|Me|对方|Them|[\w一-龥]+)[:：]\s*/, '') };
-        });
+        const parsed = rec ? parseTranscript(rec.detail).map(t => ({ isMe: t.isMe, content: t.text })) : [];
         return (
             <SubAppShell>
                 <TermHeader title={c.name} sub={badge.label} accent={accent} onBack={() => setActiveAppId('contacts')}
@@ -1515,10 +1516,10 @@ ${layoutHint[layout || 'generic']}`;
                 </div>
             </button>
 
-            {/* App cards */}
+            {/* App cards —— 「联系人」占据原 Message 的主位（Message 已废弃，收进联系人里做不起眼入口） */}
             <div className="grid grid-cols-2 gap-3.5 mb-3.5">
-                <HomeCard icon={<ChatCircleDots size={24} weight="light" />} label="Message" sub={messageSub} accent="#8b9cff"
-                    onClick={openChat} />
+                <HomeCard icon={<UsersThree size={24} weight="light" />} label="联系人" sub={contactsSub} accent="#f472b6"
+                    onClick={() => setActiveAppId('contacts')} />
                 <HomeCard icon={<ImagesSquare size={24} weight="light" />} label="Moments" sub={momentsSub} accent="#c084fc"
                     onClick={() => setActiveAppId('social')} />
                 <HomeCard icon={<Hamburger size={24} weight="light" />} label="Food" sub={foodSub} accent="#fbbf24"
@@ -1526,21 +1527,6 @@ ${layoutHint[layout || 'generic']}`;
                 <HomeCard icon={<ShoppingBag size={24} weight="light" />} label="Taobao" sub={taobaoSub} accent="#ff7a45"
                     onClick={() => setActiveAppId('taobao')} />
             </div>
-
-            {/* 人际关系入口 */}
-            <button onClick={() => setActiveAppId('contacts')}
-                className="relative w-full rounded-[22px] p-4 mb-3.5 text-left overflow-hidden border border-white/[0.09] active:scale-[0.98] transition-transform flex items-center gap-3.5"
-                style={{ background: 'linear-gradient(115deg, rgba(244,114,182,0.2), rgba(168,85,247,0.08) 60%, rgba(20,18,30,0.4))' }}>
-                <div className="absolute -top-8 -right-6 w-32 h-32 rounded-full blur-3xl pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(244,114,182,0.45), transparent 70%)' }} />
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center border border-white/[0.08] relative z-10 shrink-0" style={{ background: 'linear-gradient(135deg, #f472b633, #f472b60a)', color: '#f9a8d4', boxShadow: 'inset 0 0 16px #f472b622' }}>
-                    <UsersThree size={24} weight="light" />
-                </div>
-                <div className="relative z-10 min-w-0">
-                    <div className="text-[14px] font-semibold text-white">人际关系</div>
-                    <div className="text-[11px] text-white/50 mt-0.5">{contacts.length ? `${contacts.length} 位联系人 · TA 背着你的社交圈` : '扫描 TA 的通讯录'}</div>
-                </div>
-                <CaretRight size={16} weight="bold" className="ml-auto text-white/40 relative z-10 shrink-0" />
-            </button>
 
             {/* Add app + my apps row */}
             <div className="grid grid-cols-2 gap-3.5 mb-7">
@@ -1707,8 +1693,8 @@ ${layoutHint[layout || 'generic']}`;
                         <button onClick={() => setActiveAppId('call')} className="flex items-center justify-center text-white/70 p-2.5 hover:text-white rounded-2xl transition active:scale-90">
                             <Phone size={22} weight="light" />
                         </button>
-                        <button onClick={openChat} className="flex items-center justify-center text-white/70 p-2.5 hover:text-white rounded-2xl transition active:scale-90">
-                            <ChatCircleDots size={22} weight="light" />
+                        <button onClick={() => setActiveAppId('contacts')} aria-label="联系人" className="flex items-center justify-center text-white/70 p-2.5 hover:text-white rounded-2xl transition active:scale-90">
+                            <UsersThree size={22} weight="light" />
                         </button>
                         <button onClick={handleExitPhone} aria-label="断开连接"
                             className="relative flex items-center justify-center w-14 h-14 rounded-full active:scale-90 transition -my-1"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normName, matchRealChar, clampAffinity, upsertContact, flipTranscript } from './relationshipChat';
+import { normName, matchRealChar, clampAffinity, upsertContact, flipTranscript, parseTranscript, serializeTurns } from './relationshipChat';
 import type { PhoneContact } from '../types';
 
 describe('relationshipChat · 纯函数', () => {
@@ -54,5 +54,37 @@ describe('relationshipChat · 纯函数', () => {
         expect(flipped).toBe('对方: 在吗\n我: 在的\n对方: 借点钱');
         // 翻两次回到原样
         expect(flipTranscript(flipped)).toBe(aDetail);
+    });
+
+    it('parseTranscript 多行消息的续行跟随上一条说话人（修复错位）', () => {
+        const detail = '我: 第一句\n还有第二句\n对方: 收到\n好的';
+        expect(parseTranscript(detail)).toEqual([
+            { isMe: true, text: '第一句' },
+            { isMe: true, text: '还有第二句' }, // 续行归「我」，不被误判给对方
+            { isMe: false, text: '收到' },
+            { isMe: false, text: '好的' },      // 续行归「对方」
+        ]);
+    });
+
+    it('parseTranscript + serializeTurns 续写无损（修复续写覆盖/吞内容）', () => {
+        const detail = '我: a\nb\n对方: c';
+        // 旧逻辑会丢掉无前缀的「b」，导致续写时整段替换后内容变短；现在每行都补回前缀
+        expect(serializeTurns(parseTranscript(detail))).toBe('我: a\n我: b\n对方: c');
+    });
+
+    it('flipTranscript 多行消息也整体翻转、补全前缀', () => {
+        expect(flipTranscript('我: a\nb\n对方: c')).toBe('对方: a\n对方: b\n我: c');
+    });
+
+    it('upsertContact 不用 undefined 抹掉已有字段，且保留已有非空备注', () => {
+        const seed = upsertContact([], { name: '阿哲', kind: 'real', linkedCharId: 'c1', note: '欠我钱', identity: '同事', affinity: 30 });
+        // 再次 upsert（如扫描/对话回填）不带 note/identity：不得清空
+        const after = upsertContact(seed, { name: '阿哲', kind: 'real', affinity: 40 });
+        expect(after[0].note).toBe('欠我钱');
+        expect(after[0].identity).toBe('同事');
+        expect(after[0].affinity).toBe(40);
+        // 即便带了新的 note，也不覆盖用户已写的非空备注（显式编辑走 UI 不经此函数）
+        const after2 = upsertContact(seed, { name: '阿哲', note: 'AI 瞎编的备注' });
+        expect(after2[0].note).toBe('欠我钱');
     });
 });
