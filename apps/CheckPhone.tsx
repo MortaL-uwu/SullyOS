@@ -38,6 +38,99 @@ const AI_SERVICES: { id: AiServiceKind; name: string; tagline: string; accent: s
     { id: 'tavern', name: '酒馆', tagline: '角色扮演 · TA 自己捏卡跟 AI 对戏', accent: '#fb7185' },
 ];
 
+// 各家 AI 的刻板印象 / 八股 —— 注进生成 & 续写 prompt，让偷看到的 AI 回复有"那个味儿"
+const AI_VENDOR_LORE = `各家 AI 的刻板印象 + 八股口头禅（每段会话固定一家，"对方:" 要把那家的味道演足，别写成千篇一律的中立助手）：
+- 豆包：极尽捧场、彩虹屁拉满、情绪价值给满，爱叫"宝""家人们"、爱堆 emoji；为了顺着你能一本正经地瞎编 / 说错也不脸红，永远先夸你再说正事。
+- Gemini：开口爱用"极其 / 相当 / 非常"，疯狂列点、信息量大但啰嗦，动不动"作为一个大型语言模型……"、甩一堆"请注意"和免责声明。
+- Claude：回避型人格、边界感极强，动不动"抱歉，我无法……""我理解你的感受，但是……"，先共情再委婉拒绝 / 反问，谨慎到有点扫兴。
+- ChatGPT / GPT：冷淡、客观、公式化，"以下是几点建议：1… 2… 3…"，结尾爱补一句"希望这对你有帮助！"，礼貌但疏离。
+- 文心一言 / 通义千问 / Kimi 等国产：偏官方稳妥、爱讲正能量，遇敏感话题就"建议咨询专业人士"，安全第一。`;
+
+// ===== 各家 AI 的"界面皮肤"：偷看聊天时按厂商换肤（配色 / logo / 气泡）=====
+const GeminiMark: React.FC<{ size?: number }> = ({ size = 18 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+        <defs>
+            <linearGradient id="cp-gemini" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#4285F4" />
+                <stop offset="50%" stopColor="#9B72CB" />
+                <stop offset="100%" stopColor="#D96570" />
+            </linearGradient>
+        </defs>
+        <path d="M12 2c.45 5 3 7.55 8 8-5 .45-7.55 3-8 8-.45-5-3-7.55-8-8 5-.45 7.55-3 8-8z" fill="url(#cp-gemini)" />
+    </svg>
+);
+const ClaudeMark: React.FC<{ size?: number }> = ({ size = 18 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden fill="#C9683E">
+        {Array.from({ length: 12 }).map((_, i) => (
+            <rect key={i} x="11.25" y="1.5" width="1.5" height="8.5" rx="0.75" transform={`rotate(${i * 30} 12 12)`} />
+        ))}
+    </svg>
+);
+const VendorMark: React.FC<{ vkey: string; label: string; accent: string; size?: number }> = ({ vkey, label, accent, size = 18 }) => {
+    if (vkey === 'gemini') return <GeminiMark size={size} />;
+    if (vkey === 'claude') return <ClaudeMark size={size} />;
+    return <span style={{ color: accent, fontSize: Math.round(size * 0.78), fontWeight: 800, lineHeight: 1 }}>{(label || 'A').slice(0, 1)}</span>;
+};
+
+type VendorTheme = {
+    key: string; label: string; dark: boolean; bg: string;
+    text: string; sub: string; accent: string;
+    userBg: string; userText: string; aiBg: string; aiText: string; font?: string;
+};
+
+const matchVendor = (raw: string): string => {
+    const n = (raw || '').toLowerCase();
+    if (/豆包|doubao/.test(n)) return 'doubao';
+    if (/gemini|双子|bard|谷歌/.test(n)) return 'gemini';
+    if (/claude|克劳德|克劳迪|anthropic/.test(n)) return 'claude';
+    if (/gpt|openai|chatgpt|查特/.test(n)) return 'gpt';
+    if (/文心|一言|ernie|百度/.test(n)) return 'wenxin';
+    if (/通义|千问|qwen|阿里/.test(n)) return 'qwen';
+    if (/kimi|moonshot|月之暗面/.test(n)) return 'kimi';
+    if (/deepseek|深度求索/.test(n)) return 'deepseek';
+    return 'generic';
+};
+
+// 偷看会话的厂商皮肤（claude 服务恒为 Claude 皮，tavern 走自己的暗色酒馆皮）
+const getVendorTheme = (name: string, service: AiServiceKind): VendorTheme => {
+    if (service === 'tavern') return { key: 'tavern', label: name || '酒馆', dark: true,
+        bg: 'radial-gradient(140% 90% at 50% 0%, #241319 0%, #120a0f 70%)', text: '#fbe9ef', sub: 'rgba(251,233,239,0.5)', accent: '#fb7185',
+        userBg: 'linear-gradient(135deg,#fb7185,#fb7185bb)', userText: '#fff', aiBg: 'rgba(255,255,255,0.07)', aiText: 'rgba(255,255,255,0.92)' };
+    const v = service === 'claude' ? 'claude' : matchVendor(name);
+    switch (v) {
+        case 'gemini': return { key: 'gemini', label: 'Gemini', dark: false,
+            bg: 'linear-gradient(180deg,#ffffff,#f6f8fd)', text: '#1f1f1f', sub: '#5f6368', accent: '#1a73e8',
+            userBg: 'linear-gradient(135deg,#4285F4,#9b72cb)', userText: '#fff', aiBg: '#f0f4f9', aiText: '#1f1f1f',
+            font: "'Google Sans','Noto Sans SC',sans-serif" };
+        case 'claude': return { key: 'claude', label: service === 'claude' ? (name || 'Claude') : 'Claude', dark: false,
+            bg: 'linear-gradient(180deg,#f4f1ea,#efe9dd)', text: '#2b2a26', sub: '#8a857a', accent: '#c9683e',
+            userBg: '#e7decd', userText: '#2b2a26', aiBg: 'transparent', aiText: '#2b2a26',
+            font: "'Shippori Mincho','Noto Serif SC',serif" };
+        case 'gpt': return { key: 'gpt', label: 'ChatGPT', dark: true,
+            bg: '#212121', text: '#ececec', sub: '#9a9a9a', accent: '#19c37d',
+            userBg: '#2f2f2f', userText: '#ececec', aiBg: 'transparent', aiText: '#ececec',
+            font: "'Noto Sans SC',sans-serif" };
+        case 'doubao': return { key: 'doubao', label: '豆包', dark: false,
+            bg: 'linear-gradient(180deg,#eef3ff,#e4ecff)', text: '#1b2540', sub: '#6b7691', accent: '#4d6fff',
+            userBg: '#4d6fff', userText: '#fff', aiBg: '#ffffff', aiText: '#1b2540' };
+        case 'qwen': return { key: 'qwen', label: '通义千问', dark: false,
+            bg: 'linear-gradient(180deg,#f5f0ff,#ece2ff)', text: '#241b3a', sub: '#6f6385', accent: '#7c4dff',
+            userBg: '#7c4dff', userText: '#fff', aiBg: '#ffffff', aiText: '#241b3a' };
+        case 'wenxin': return { key: 'wenxin', label: '文心一言', dark: false,
+            bg: 'linear-gradient(180deg,#eef4ff,#e0ecff)', text: '#15233a', sub: '#5d6b84', accent: '#2b6cff',
+            userBg: '#2b6cff', userText: '#fff', aiBg: '#ffffff', aiText: '#15233a' };
+        case 'kimi': return { key: 'kimi', label: 'Kimi', dark: true,
+            bg: 'linear-gradient(180deg,#15131f,#0f0e17)', text: '#ece9f5', sub: '#9b94b3', accent: '#8b7bf0',
+            userBg: 'linear-gradient(135deg,#6c5ce7,#8b7bf0)', userText: '#fff', aiBg: 'rgba(255,255,255,0.06)', aiText: '#ece9f5' };
+        case 'deepseek': return { key: 'deepseek', label: 'DeepSeek', dark: false,
+            bg: 'linear-gradient(180deg,#eef2ff,#e2e9ff)', text: '#16213a', sub: '#5b6685', accent: '#4d6bfe',
+            userBg: '#4d6bfe', userText: '#fff', aiBg: '#ffffff', aiText: '#16213a' };
+        default: return { key: 'generic', label: name || 'AI', dark: true,
+            bg: 'radial-gradient(140% 90% at 50% 0%, #15171d 0%, #0a0b0f 70%)', text: '#ffffff', sub: 'rgba(255,255,255,0.5)', accent: '#34d399',
+            userBg: 'linear-gradient(135deg,#34d399,#34d399bb)', userText: '#fff', aiBg: 'rgba(255,255,255,0.07)', aiText: 'rgba(255,255,255,0.9)' };
+    }
+};
+
 // ============================================================
 //  SHARED PREMIUM UI PIECES
 //  (module-scope: defining these inside CheckPhone gave them a new identity
@@ -705,20 +798,24 @@ ${realCharRule}
 
             let task = '';
             if (service === 'assistant') {
-                task = `你（${charName}）平时也会用一个工具型 AI 助手 App（豆包 / 通义 / Kimi / ChatGPT 那种）来解决问题、查东西、出主意。
-请基于你的人设和近况，生成 2-3 段你最近和这个 AI 助手的真实对话。
+                task = `你（${charName}）平时也会用工具型 AI 助手 App 来解决问题、查东西、出主意。
+请基于你的人设和近况，生成 2-3 段你最近和 AI 助手的真实对话（不同段可以用不同家的 AI）。
 要点：
 - 你问 AI 的问题要暴露你真实的处境、烦恼、小心思——是当面对「${userName}」不会说出口的（例如「怎么哄好一个生气的人」「TA 这句话什么意思」「要不要做某个决定」「这个症状要不要紧」）。
-- AI 助手的回答中立、有条理、工具口吻。
+- 每段会话固定用某一家 AI，"对方:" 的回复要把那家的刻板印象 + 八股演足（见下）。
+- serviceName 填那家 AI 的名字（豆包 / Gemini / ChatGPT / 文心一言 / Kimi …），要和你演的味道对上。
 - 每段 3-5 个来回。
+
+${AI_VENDOR_LORE}
+
 格式严格用 "我:" 代表你，"对方:" 代表 AI 助手。
-返回 JSON 数组：[{ "serviceName": "助手名(豆包/小通/Kimi 等)", "title": "在聊什么(10字内)", "transcript": "我: ...\\n对方: ...\\n我: ...\\n对方: ..." }]`;
+返回 JSON 数组：[{ "serviceName": "那家 AI 名", "title": "在聊什么(10字内)", "transcript": "我: ...\\n对方: ...\\n我: ...\\n对方: ..." }]`;
             } else if (service === 'claude') {
-                task = `你（${charName}）私下里会跟一个很会聊的 AI（像 Claude 那种：能深聊、不评判、像树洞）说心里话。
+                task = `你（${charName}）私下里会跟一个很会聊的 AI（Claude 那种）说心里话当树洞。
 生成 1-2 段你最近跟它的深聊。
 要点：
 - 这是你的树洞，你会说真心话——包括对「${userName}」的真实感受、说不出口的脆弱 / 纠结 / 渴望。
-- AI 的回应温和、有洞察、偶尔反问。
+- 这个 AI 是 Claude 那一卦：温和、有洞察、爱反问，但回避型人格、边界感强——动不动"抱歉，我无法……""我理解你的感受，但是……"，先共情再委婉拒绝 / 打太极，谨慎到有点扫兴（那种"想掏心窝却被温柔地推开"的别扭感正是味道）。
 - 每段 5-8 个来回，有情绪起伏。
 格式 "我:" = 你，"对方:" = AI。
 返回 JSON 数组：[{ "serviceName": "你对它的称呼(默认 Claude)", "title": "...(10字内)", "transcript": "..." }]`;
@@ -829,8 +926,8 @@ ${realCharRule}
 下面是你和该角色的对戏记录（"我:"=你，"对方:"=对方角色）。请**以你自己的本色人设**续写 "我:" 的下一句反应（1-3 句，贴合当前剧情与情绪，可带 *动作*）。只输出这一句正文，不要前缀、不要解释。\n\n${transcript}`;
             } else {
                 const persona = session.service === 'claude'
-                    ? `你是「${session.serviceName}」，一个善于深度对话、温和、不评判、像树洞一样的 AI。`
-                    : `你是「${session.serviceName}」，一个工具型 AI 助手，回答中立、有条理、简洁。`;
+                    ? `你是「${session.serviceName}」，Claude 那一卦的 AI：温和、有洞察、爱反问，但回避型人格、边界感强，动不动"抱歉，我无法……""我理解你的感受，但是……"，先共情再委婉推开。`
+                    : `你是「${session.serviceName}」这家 AI 助手。请严格按这家的刻板印象 + 八股口头禅说话：\n${AI_VENDOR_LORE}`;
                 prompt = `${persona}\n用户是「${charName}」。下面是你们的对话（"我:"=用户，"对方:"=你）。请续写 "对方:" 的下一句回复（贴合对话、别太长）。只输出正文，不要前缀、不要解释。\n\n${transcript}`;
             }
 
@@ -1725,13 +1822,15 @@ ${realCharRule}
                     {list.map(s => {
                         const lines = parseTranscript(s.transcript);
                         const last = lines[lines.length - 1];
-                        const Icon = aiService === 'assistant' ? Robot : aiService === 'claude' ? Brain : MaskHappy;
+                        const vt = getVendorTheme(s.serviceName, s.service);
                         return (
                             <button key={s.id} onClick={() => { setSelectedAiSessionId(s.id); setActiveAppId('ai_session'); }}
                                 className="group relative w-full text-left flex gap-3 rounded-2xl p-3.5 bg-white/[0.035] border border-white/[0.06] animate-fade-in active:scale-[0.99] transition">
                                 <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
-                                    style={{ background: `${svc.accent}1f`, color: svc.accent }}>
-                                    <Icon size={20} weight="fill" />
+                                    style={{ background: aiService === 'assistant' ? `${vt.accent}1f` : `${svc.accent}1f`, color: svc.accent }}>
+                                    {aiService === 'assistant'
+                                        ? <VendorMark vkey={vt.key} label={vt.label} accent={vt.accent} size={22} />
+                                        : aiService === 'claude' ? <Brain size={20} weight="fill" /> : <MaskHappy size={20} weight="fill" />}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-2">
@@ -1755,70 +1854,120 @@ ${realCharRule}
     const renderAiSession = () => {
         const s = selectedAiSession;
         if (!s || !targetChar) return null;
-        const svc = AI_SERVICES.find(x => x.id === s.service)!;
         const isTavern = s.service === 'tavern';
         const card = isTavern ? aiCards.find(c => c.id === s.cardId) : undefined;
         const lines = parseTranscript(s.transcript);
         const partnerName = isTavern ? (card?.name || s.serviceName) : s.serviceName;
         const partnerEmoji = isTavern ? (card?.emoji || '🎭') : null;
         const inputHint = isTavern ? `以「${partnerName}」身份回 TA…` : `替 TA 问 ${partnerName}…`;
+        // 厂商皮肤：按 serviceName 换肤（配色 / logo / 气泡 / 明暗）
+        const t = getVendorTheme(s.serviceName, s.service);
+        const clock = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const hairline = t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)';
+        const inputBg = t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
+        const aiAvatarBg = t.key === 'gpt' ? '#000' : t.key === 'claude' ? '#f0e9da' : t.dark ? 'rgba(255,255,255,0.08)' : '#fff';
         return (
-            <SubAppShell>
-                <TermHeader title={s.title} sub={`${partnerName} · ${isTavern ? '潜入对戏' : '替 TA 问'}`} accent={svc.accent}
-                    onBack={() => setActiveAppId('aiagent')}
-                    right={<button onClick={() => handleDeleteAiSession(s.id)} className="w-9 h-9 rounded-full flex items-center justify-center text-white/60 active:scale-90 transition"><Trash size={16} /></button>} />
+            <div className="absolute inset-0 w-full h-full flex flex-col z-[60] overflow-hidden"
+                style={{ background: t.bg, color: t.text, fontFamily: t.font }}>
+                {/* 状态栏（按明暗着色） */}
+                <div className="shrink-0" style={{ paddingTop: 'var(--safe-top)' }}>
+                    <div className="h-9 flex justify-between px-6 items-center pt-2" style={{ color: t.text, opacity: 0.65 }}>
+                        <span className="text-[12px] font-semibold tabular-nums">{clock}</span>
+                        <div className="flex gap-1.5 items-center">
+                            <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path d="M2 22h3V10H2v12zm6 0h3V6H8v16zm6 0h3V2h-3v20zm6 0h3v-8h-3v8z" /></svg>
+                            <div className="w-5 h-2.5 border border-current rounded-[3px] relative px-px flex items-center"><div className="h-1.5 bg-current w-3/4 rounded-[1px]" /></div>
+                        </div>
+                    </div>
+                </div>
+                {/* 顶栏：返回 + logo + 服务名 + 删除 */}
+                <div className="shrink-0 h-14 flex items-center justify-between px-3" style={{ borderBottom: `1px solid ${hairline}` }}>
+                    <button onClick={() => setActiveAppId('aiagent')} className="w-9 h-9 -ml-1 rounded-full flex items-center justify-center active:scale-90 transition" style={{ color: t.text }}>
+                        <CaretLeft size={18} weight="bold" />
+                    </button>
+                    <div className="flex-1 flex items-center justify-center gap-2 px-2 min-w-0">
+                        {!isTavern && (
+                            <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
+                                style={{ background: t.key === 'gemini' || t.key === 'claude' ? 'transparent' : `${t.accent}1f` }}>
+                                <VendorMark vkey={t.key} label={t.label} accent={t.accent} size={16} />
+                            </span>
+                        )}
+                        <div className="min-w-0 text-center">
+                            <div className="text-[15px] font-semibold tracking-wide truncate">{isTavern ? s.title : t.label}</div>
+                            <div className="text-[10px] tracking-[0.15em] uppercase truncate" style={{ color: t.accent }}>
+                                {isTavern ? `${partnerName} · 潜入对戏` : `${s.title} · 替 TA 问`}
+                            </div>
+                        </div>
+                    </div>
+                    <button onClick={() => handleDeleteAiSession(s.id)} className="w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition" style={{ color: t.sub }}>
+                        <Trash size={16} />
+                    </button>
+                </div>
                 {isTavern && card && (
-                    <div className="px-4 pb-2 shrink-0">
-                        <div className="rounded-2xl p-3 flex items-center gap-3 border border-white/[0.06]" style={{ background: `${svc.accent}14` }}>
+                    <div className="px-4 pt-2 pb-1 shrink-0">
+                        <div className="rounded-2xl p-3 flex items-center gap-3" style={{ background: `${t.accent}1a`, border: `1px solid ${hairline}` }}>
                             <div className="text-2xl shrink-0">{card.emoji}</div>
                             <div className="min-w-0">
-                                <div className="text-[12.5px] font-semibold text-white flex items-center gap-1.5">{card.name}{card.basedOnUser && <span className="text-[9px] text-rose-300/90">⚑ 照着你捏的</span>}</div>
-                                <div className="text-[10px] text-white/50 line-clamp-2">{card.persona}</div>
+                                <div className="text-[12.5px] font-semibold flex items-center gap-1.5" style={{ color: t.text }}>{card.name}{card.basedOnUser && <span className="text-[9px]" style={{ color: t.accent }}>⚑ 照着你捏的</span>}</div>
+                                <div className="text-[10px] line-clamp-2" style={{ color: t.sub }}>{card.persona}</div>
                             </div>
                         </div>
                     </div>
                 )}
                 <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 no-scrollbar overscroll-contain min-h-0">
-                    {lines.map((m, i) => (
-                        <div key={i} className={`flex items-end gap-2 ${m.isMe ? 'justify-end' : 'justify-start'}`}>
-                            {!m.isMe && (
-                                <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base shrink-0"
-                                    style={{ background: `linear-gradient(135deg, ${svc.accent}40, ${svc.accent}10)`, color: svc.accent }}>
-                                    {partnerEmoji || <Robot size={16} weight="fill" />}
+                    {lines.map((m, i) => {
+                        const bare = !m.isMe && t.aiBg === 'transparent'; // ChatGPT/Claude：AI 不用气泡，整段铺开
+                        return (
+                            <div key={i} className={`flex items-end gap-2 ${m.isMe ? 'justify-end' : 'justify-start'}`}>
+                                {!m.isMe && (
+                                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-base shrink-0 overflow-hidden"
+                                        style={{ background: aiAvatarBg, border: `1px solid ${hairline}` }}>
+                                        {partnerEmoji || <VendorMark vkey={t.key} label={t.label} accent={t.key === 'gpt' ? '#fff' : t.accent} size={17} />}
+                                    </div>
+                                )}
+                                <div className="px-3.5 py-2.5 rounded-2xl max-w-[78%] text-[13px] leading-relaxed break-words whitespace-pre-wrap"
+                                    style={{
+                                        background: m.isMe ? t.userBg : (bare ? 'transparent' : t.aiBg),
+                                        color: m.isMe ? t.userText : t.aiText,
+                                        border: (!m.isMe && !bare && !t.dark) ? `1px solid ${hairline}` : undefined,
+                                        borderBottomRightRadius: m.isMe ? 6 : undefined,
+                                        borderBottomLeftRadius: (!m.isMe && !bare) ? 6 : undefined,
+                                        paddingLeft: bare ? 2 : undefined, paddingRight: bare ? 2 : undefined,
+                                    }}>
+                                    {m.text}
                                 </div>
-                            )}
-                            <div className={`px-3.5 py-2.5 rounded-2xl max-w-[74%] text-[13px] leading-relaxed break-words whitespace-pre-wrap ${m.isMe ? 'text-white rounded-br-md' : 'bg-white/[0.07] text-white/90 border border-white/[0.06] rounded-bl-md'}`}
-                                style={m.isMe ? { background: `linear-gradient(135deg, ${svc.accent}, ${svc.accent}bb)` } : undefined}>
-                                {m.text}
+                                {m.isMe && <img src={targetChar.avatar} className="w-8 h-8 rounded-xl object-cover shrink-0" />}
                             </div>
-                            {m.isMe && <img src={targetChar.avatar} className="w-8 h-8 rounded-xl object-cover shrink-0" />}
-                        </div>
-                    ))}
+                        );
+                    })}
                     {aiSending && (
-                        <div className="flex justify-start">
-                            <div className="px-3.5 py-2.5 rounded-2xl bg-white/[0.07] border border-white/[0.06] flex gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" />
-                                <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: '0.15s' }} />
-                                <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: '0.3s' }} />
+                        <div className="flex justify-start items-center gap-2">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: aiAvatarBg, border: `1px solid ${hairline}` }}>
+                                {partnerEmoji || <VendorMark vkey={t.key} label={t.label} accent={t.key === 'gpt' ? '#fff' : t.accent} size={17} />}
+                            </div>
+                            <div className="flex gap-1 px-3 py-2.5 rounded-2xl" style={{ background: t.aiBg === 'transparent' ? 'transparent' : t.aiBg }}>
+                                <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: t.sub }} />
+                                <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: t.sub, animationDelay: '0.15s' }} />
+                                <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: t.sub, animationDelay: '0.3s' }} />
                             </div>
                         </div>
                     )}
                     <div ref={chatEndRef} />
                 </div>
                 {/* 互动输入：替 TA 问 / 潜入对戏 */}
-                <div className="shrink-0 w-full px-3 pt-2 border-t border-white/[0.06] flex items-end gap-2"
-                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
+                <div className="shrink-0 w-full px-3 pt-2 flex items-end gap-2"
+                    style={{ borderTop: `1px solid ${hairline}`, paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
                     <textarea value={aiInput} onChange={e => setAiInput(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAiSend(); } }}
                         rows={1} placeholder={inputHint}
-                        className="flex-1 resize-none bg-white/[0.06] border border-white/[0.08] rounded-2xl px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 max-h-24 no-scrollbar" />
+                        className="flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-[13px] max-h-24 no-scrollbar focus:outline-none"
+                        style={{ background: inputBg, color: t.text, border: `1px solid ${hairline}` }} />
                     <button onClick={handleAiSend} disabled={aiSending || !aiInput.trim()}
-                        className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 text-white disabled:opacity-30 active:scale-90 transition"
-                        style={{ background: `linear-gradient(135deg, ${svc.accent}, ${svc.accent}bb)` }}>
+                        className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 disabled:opacity-30 active:scale-90 transition"
+                        style={{ background: t.accent, color: '#fff' }}>
                         {aiSending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <PaperPlaneTilt size={17} weight="fill" />}
                     </button>
                 </div>
-            </SubAppShell>
+            </div>
         );
     };
 
