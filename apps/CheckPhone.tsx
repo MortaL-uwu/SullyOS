@@ -663,11 +663,43 @@ ${layoutHint[layout || 'generic']}`;
         addToast('备注已保存', 'success');
     };
 
-    const handleRemoveContact = (contact: PhoneContact) => {
-        mutateContacts(cs => cs.filter(c => c.id !== contact.id));
+    // 彻底移除联系人：连同 TA 的聊天记录 + 私聊里的 phone_card 一起清；
+    // 真人联系人（哪怕之前甄别/绑定错了）也把对方手机里的镜像联系人和记录一并删掉。
+    const handleRemoveContact = async (contact: PhoneContact) => {
+        if (!targetChar) return;
+        const isChatWith = (r: PhoneEvidence, cId: string | undefined, nm: string) =>
+            r.type === 'chat' && (r.contactId === cId || normName(r.title) === normName(nm));
+        // 机主侧：删 phone_card 私聊消息 + 联系人 + 其聊天记录
+        for (const r of (targetChar.phoneState?.records || [])) {
+            if (isChatWith(r, contact.id, contact.name) && r.systemMessageId) await DB.deleteMessage(r.systemMessageId);
+        }
+        updateCharacter(targetChar.id, (cur) => ({
+            phoneState: {
+                ...cur.phoneState,
+                contacts: (cur.phoneState?.contacts || []).filter(c => c.id !== contact.id),
+                records: (cur.phoneState?.records || []).filter(r => !isChatWith(r, contact.id, contact.name)),
+            },
+        }));
+        // 对方侧（按当前 linkedCharId 找——绑错了删的就是那个错绑的角色，正是要清掉的）
+        if (contact.kind === 'real' && contact.linkedCharId) {
+            const b = characters.find(c => c.id === contact.linkedCharId);
+            if (b) {
+                const bContact = (b.phoneState?.contacts || []).find(c => c.linkedCharId === targetChar.id || normName(c.name) === normName(targetChar.name));
+                for (const r of (b.phoneState?.records || [])) {
+                    if (isChatWith(r, bContact?.id, targetChar.name) && r.systemMessageId) await DB.deleteMessage(r.systemMessageId);
+                }
+                updateCharacter(b.id, (cur) => ({
+                    phoneState: {
+                        ...cur.phoneState,
+                        contacts: (cur.phoneState?.contacts || []).filter(c => !(bContact && c.id === bContact.id)),
+                        records: (cur.phoneState?.records || []).filter(r => !isChatWith(r, bContact?.id, targetChar.name)),
+                    },
+                }));
+            }
+        }
         setSelectedContact(null);
         setActiveAppId('contacts');
-        addToast('联系人已移除', 'success');
+        addToast('联系人及相关记录已彻底移除', 'success');
     };
 
     const handleCreateContact = () => {
@@ -1289,8 +1321,11 @@ ${layoutHint[layout || 'generic']}`;
             <SubAppShell>
                 <TermHeader title={c.name} sub={badge.label} accent={accent} onBack={() => setActiveAppId('contacts')}
                     right={<button onClick={() => askConfirm({
-                        title: '移除该联系人？', desc: `将把「${c.name}」从这台手机的通讯录里彻底移除。`,
-                        confirmLabel: '移除', danger: true, onConfirm: () => handleRemoveContact(c),
+                        title: '彻底移除该联系人？',
+                        desc: c.kind === 'real' && c.linkedCharId
+                            ? `会把「${c.name}」连同 TA 的聊天记录、私聊里的卡片一起删除；绑定的真实角色那边的镜像联系人和记录也一并清除（绑错了就用这个清干净）。`
+                            : `会把「${c.name}」连同 TA 的聊天记录、私聊里的卡片一起彻底删除。`,
+                        confirmLabel: '彻底移除', danger: true, onConfirm: () => handleRemoveContact(c),
                     })} className="text-rose-300/80 active:scale-90 transition"><Trash size={18} weight="bold" /></button>} />
                 <div className="flex-1 overflow-y-auto px-4 pt-1 no-scrollbar pb-28 overscroll-contain space-y-3">
                     {/* 关系卡 */}
