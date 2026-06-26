@@ -1179,6 +1179,21 @@ const Settings: React.FC = () => {
                     <input type="password" value={localKey} onChange={(e) => setLocalKey(e.target.value)} placeholder="sk-..." className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all" />
                 </div>
 
+                {/* 本站代理开关 —— 常驻可见（不藏进高级区）。源不开 CORS 时这是唯一出路，必须好找。 */}
+                <div className="flex items-center justify-between bg-white/40 border border-slate-200/60 rounded-xl px-4 py-2.5">
+                    <div className="pr-2">
+                        <span className="text-[11px] font-medium text-slate-500">通过本站代理 (绕过 CORS)</span>
+                        <p className="text-[9px] text-slate-300 mt-0.5 leading-relaxed">源不开 CORS（如 Pioneer）直连报 Failed to fetch 时打开。仅 Vercel 等带后端的部署有效，GitHub Pages 纯静态无效；原生 App 无需开。改完记得点下面「保存配置」。</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setLocalUseProxy(v => !v)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${localUseProxy ? 'bg-primary' : 'bg-slate-200'}`}
+                    >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${localUseProxy ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </button>
+                </div>
+
                 {/* 高级（流式 / 温度）— 默认折叠，灰色低调，明确写"不建议修改" */}
                 <div className="pt-1">
                     <button
@@ -1207,19 +1222,6 @@ const Settings: React.FC = () => {
                                     className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${localStream ? 'bg-slate-400' : 'bg-slate-200'}`}
                                 >
                                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${localStream ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                </button>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <div className="pr-2">
-                                    <span className="text-[10px] text-slate-400">通过本站代理 (绕过 CORS)</span>
-                                    <p className="text-[9px] text-slate-300 mt-0.5">源不开 CORS（如 Pioneer）直连报 Failed to fetch 时打开。仅 Vercel 等带后端的部署有效，GitHub Pages 纯静态无效；原生 App 无需开。</p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setLocalUseProxy(v => !v)}
-                                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${localUseProxy ? 'bg-slate-400' : 'bg-slate-200'}`}
-                                >
-                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${localUseProxy ? 'translate-x-4' : 'translate-x-0.5'}`} />
                                 </button>
                             </div>
                             <div>
