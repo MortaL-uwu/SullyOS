@@ -185,6 +185,19 @@ export function normalizeMessageContent(
         return `${head}\n网页正文：\n${body}`;
     }
 
+    // 小剧场卡片：用户在日程表"窥视"了角色某时段的行为演出，并把这一刻发到聊天里。
+    // 归档/记忆宫殿要读到「用户偷看了你 + 你当时在做什么」，角色才会记得"被看到"这件事。
+    if (type === 'theater_card') {
+        const t: any = msg.metadata?.theater || {};
+        const meta: any = msg.metadata || {};
+        const beat = Array.isArray(t.lines)
+            ? t.lines.map((l: any) => `· ${typeof l?.text === 'string' ? l.text : ''}`).filter((s: string) => s.length > 2).join('\n')
+            : '';
+        const head = `[小剧场·窥视] ${userName}悄悄看了${charName}在 ${meta.slotTime || ''}「${meta.activity || '某个时段'}」时的样子`;
+        if (beat) return `${head}\n${charName}当时的画面：\n${beat}\n（${charName}意识到自己被${userName}看到了。）`;
+        return head;
+    }
+
     // 默认：text / 未知类型 → 用 content
     return msg.content || '';
 }

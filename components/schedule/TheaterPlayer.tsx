@@ -8,6 +8,7 @@ interface TheaterPlayerProps {
     lines: TheaterLine[] | null;   // null / 空 = 还在生成
     isGenerating: boolean;
     onReplay: () => void;          // 重演（重新生成）
+    onSendCard?: () => void;       // 「让 TA 知道」：把这段演出作为卡片发到聊天，角色会察觉被偷看
     onClose: () => void;
 }
 
@@ -18,7 +19,7 @@ const LINE_GAP_MS = 520;        // 一行打完到下一行开始的停顿
 const isDialogue = (text: string): boolean => /[「」“”"]/.test(text);
 
 const TheaterPlayer: React.FC<TheaterPlayerProps> = ({
-    character, slot, lines, isGenerating, onReplay, onClose,
+    character, slot, lines, isGenerating, onReplay, onSendCard, onClose,
 }) => {
     const hue = character?.themeColor ?? 260;
     const accent = `hsl(${hue}, 70%, 66%)`;
@@ -167,24 +168,32 @@ const TheaterPlayer: React.FC<TheaterPlayerProps> = ({
             {/* 底部控制 */}
             <div className="flex items-center justify-center gap-3 px-5 pt-2 pb-6 flex-shrink-0">
                 {!isGenerating && lines && (
-                    <>
-                        {!finished ? (
-                            <button
-                                onClick={handleAdvance}
-                                className="px-5 py-2.5 rounded-full text-xs font-bold text-white/80 bg-white/8 hover:bg-white/15 transition-colors active:scale-95"
-                            >
-                                {currentLine && typed.length < (currentLine.text?.length ?? 0) ? '▸ 跳过本行' : '▸▸ 跳到结尾'}
-                            </button>
-                        ) : (
+                    !finished ? (
+                        <button
+                            onClick={handleAdvance}
+                            className="px-5 py-2.5 rounded-full text-xs font-bold text-white/80 bg-white/8 hover:bg-white/15 transition-colors active:scale-95"
+                        >
+                            {currentLine && typed.length < (currentLine.text?.length ?? 0) ? '▸ 跳过本行' : '▸▸ 跳到结尾'}
+                        </button>
+                    ) : (
+                        <>
                             <button
                                 onClick={onReplay}
-                                className="px-6 py-2.5 rounded-full text-xs font-bold transition-all active:scale-95"
-                                style={{ background: accent, color: '#06080c' }}
+                                className="px-5 py-2.5 rounded-full text-xs font-bold text-white/75 bg-white/8 hover:bg-white/15 transition-colors active:scale-95"
                             >
                                 ↻ 换一段重演
                             </button>
-                        )}
-                    </>
+                            {onSendCard && (
+                                <button
+                                    onClick={onSendCard}
+                                    className="px-6 py-2.5 rounded-full text-xs font-bold transition-all active:scale-95"
+                                    style={{ background: accent, color: '#06080c' }}
+                                >
+                                    📨 让 TA 知道
+                                </button>
+                            )}
+                        </>
+                    )
                 )}
             </div>
         </div>

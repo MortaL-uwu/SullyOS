@@ -931,6 +931,18 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                     const body = typeof m.content === 'string' ? m.content : '';
                     content = `${timeStr}（这是用户翻看你手机时、你${pc.app || '手机'}里呈现的内容——属于你自己的数字痕迹，当成手机里确实有的东西即可，聊到再自然提及，不必主动说起。）\n${body}`;
                 }
+                else if ((m.type as string) === 'theater_card') {
+                    // theater_card：用户在日程表里"窥视"了你某个时段的行为小剧场，并把这一刻发给你看。
+                    // 框定为「你刚发现自己被偷看了」——那段演出就是你当时真实在做的事，你现在意识到
+                    // 用户一直在旁边观察。让你可以在接下来的回应里自然有所反应（害羞/好奇/装没事都行）。
+                    const tMeta: any = m.metadata || {};
+                    const t: any = tMeta.theater || {};
+                    const uName = userProfile?.name || '用户';
+                    const beat = Array.isArray(t.lines)
+                        ? t.lines.map((l: any) => `· ${typeof l?.text === 'string' ? l.text : ''}`).filter((s: string) => s.length > 2).join('\n')
+                        : '';
+                    content = `${timeStr}（${uName} 刚刚悄悄"窥视"了你今天 ${tMeta.slotTime || ''}「${tMeta.activity || '某个时段'}」时的样子，并把 ta 看到的画面发给了你——也就是说，你这才发现刚才那段时间 ${uName} 一直在旁边观察你。下面就是 ta 看到的、你当时真实在做的事：）\n${beat}\n（你意识到自己被看到了。可以在接下来的对话里自然地有所反应——害羞、好奇、嗔怪、或装作不在意都行，但别逐字复述上面的内容。）`;
+                }
                 else if ((m.type as string) === 'html_card') {
                     // html_card：上下文里只塞纯文字摘要，剥离掉所有 HTML，省 token、不污染 LLM 思考
                     const meta: any = m.metadata || {};

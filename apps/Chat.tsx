@@ -1418,6 +1418,33 @@ const Chat: React.FC = () => {
 
     const handlePlayTheater = (index: number) => { runTheater(index, false); };
 
+    // 「让 TA 知道」：把这段小剧场作为卡片发到聊天，并触发角色反应（窥视 → 留痕 → 角色察觉）。
+    const handleSendTheaterCard = async (index: number) => {
+        if (!char || !scheduleData) return;
+        const slot = scheduleData.slots[index];
+        if (!slot?.theater || slot.theater.lines.length === 0) return;
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'theater_card',
+            content: `${slot.startTime} · ${slot.activity}`,
+            metadata: {
+                theater: slot.theater,
+                slotTime: slot.startTime,
+                activity: slot.activity,
+                emoji: slot.emoji,
+                date: scheduleData.date,
+            },
+        });
+        // 关掉播放器 + 日程 modal，让用户回到聊天看角色的反应
+        setTheaterSlotIdx(null);
+        setModalType('none');
+        await reloadMessages(visibleCountRef.current);
+        addToast('已让 TA 知道你在看 👀', 'info');
+        // 触发角色对"被偷看"的当场反应（triggerAI 内部从 DB 拉完整历史，含刚写入的卡片）
+        handleManualTrigger();
+    };
+
     const generateDailySchedule = async (targetChar: typeof char, forceRegenerate: boolean = false) => {
         if (!targetChar || isScheduleGenerating) return;
         setIsScheduleGenerating(true);
@@ -2585,6 +2612,7 @@ const Chat: React.FC = () => {
                     lines={scheduleData.slots[theaterSlotIdx]?.theater?.lines || null}
                     isGenerating={isTheaterGenerating}
                     onReplay={() => runTheater(theaterSlotIdx, true)}
+                    onSendCard={() => handleSendTheaterCard(theaterSlotIdx)}
                     onClose={() => setTheaterSlotIdx(null)}
                 />,
                 document.body,

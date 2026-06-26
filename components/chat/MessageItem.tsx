@@ -1864,6 +1864,48 @@ const MessageItem = React.memo(({
         return commonLayout(card);
     }
 
+    if (m.type === 'theater_card') {
+        const tMeta: any = m.metadata || {};
+        const t: any = tMeta.theater || {};
+        const lines: any[] = Array.isArray(t.lines) ? t.lines : [];
+        const timeStr = new Date(m.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        const accent = '#f0ab9c';
+        const card = (
+            <div className="w-64">
+                <div className="relative rounded-2xl overflow-hidden border shadow-[0_8px_28px_rgba(50,25,30,0.45)]"
+                    style={{ borderColor: 'rgba(240,171,156,0.3)', background: 'linear-gradient(160deg,#2a1820 0%,#1d1219 55%,#130c11 100%)' }}>
+                    <div className="absolute -top-7 -right-5 w-24 h-24 rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle,rgba(240,171,156,.32),transparent 70%)' }} />
+                    {/* 头部 */}
+                    <div className="relative px-3 pt-2.5 pb-2 flex items-center gap-2 border-b" style={{ borderColor: 'rgba(240,171,156,0.18)' }}>
+                        <span className="text-sm leading-none" style={{ color: accent, filter: 'drop-shadow(0 1px 4px rgba(240,171,156,.5))' }}>👁</span>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-[9px] tracking-[0.25em] font-bold uppercase" style={{ color: accent }}>窥视回放 · {tMeta.slotTime || ''}</div>
+                            <div className="text-[12px] text-white/90 font-semibold truncate">{tMeta.emoji ? `${tMeta.emoji} ` : ''}{tMeta.activity || '某个时段'}</div>
+                        </div>
+                        <span className="text-[9px] text-white/35">{timeStr}</span>
+                    </div>
+                    {/* 正文：逐拍回放 */}
+                    <div className="relative px-3 py-2.5 max-h-52 overflow-y-auto no-scrollbar space-y-1.5">
+                        {lines.length > 0 ? lines.map((l: any, i: number) => (
+                            <div key={i} className="flex items-start gap-1.5">
+                                {l?.emotion && <span className="text-[11px] leading-tight flex-shrink-0 mt-0.5">{l.emotion}</span>}
+                                <p className="text-[12px] leading-[1.6] text-white/72 whitespace-pre-wrap">{l?.text || ''}</p>
+                            </div>
+                        )) : (
+                            <p className="text-[11px] text-white/40 italic">（这段窥视没有内容）</p>
+                        )}
+                    </div>
+                    {/* 页脚 */}
+                    <div className="relative px-3 py-1.5 border-t flex items-center justify-between" style={{ borderColor: 'rgba(240,171,156,0.18)' }}>
+                        <span className="text-[9px] italic text-white/35">你偷看了 TA 的这一刻</span>
+                        <span className="text-[9px] font-bold tracking-wide" style={{ color: accent }}>TA 已察觉</span>
+                    </div>
+                </div>
+            </div>
+        );
+        return commonLayout(card);
+    }
+
     if (m.type === 'world_card') {
         const md: any = m.metadata || {};
         const timeStr = new Date(m.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
