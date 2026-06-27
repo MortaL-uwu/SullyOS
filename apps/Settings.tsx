@@ -14,6 +14,7 @@ import { getLuckinToken, setLuckinToken as saveLuckinToken, isLuckinEnabled, set
 import { getProxyWorkerUrl, setProxyWorkerUrl, DEFAULT_PROXY_WORKER } from '../utils/proxyWorker';
 import { VOICE_ACTING_GUIDE } from '../utils/minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from '../utils/fishAudioTts';
+import { DATE_VOICE_GUIDE } from '../utils/datePrompts';
 import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee } from '@phosphor-icons/react';
 import { loadPushConfig, savePushConfig, registerScheduleOnWorker, startHeartbeat, stopHeartbeat, isPushConfigAvailable, ensureSubscribed, sendTestPush, getPushDiagnostics, resetSubscription, deepResetSubscription, type PushDiagnostics } from '../utils/proactivePushConfig';
 import { ProactiveChat } from '../utils/proactiveChat';
@@ -90,6 +91,7 @@ const Settings: React.FC = () => {
   // 自定义语音表演指南（留空 → 用内置默认）。按服务商分两份。
   const [localVoicePromptMinimax, setLocalVoicePromptMinimax] = useState(apiConfig.voicePrompts?.minimax || '');
   const [localVoicePromptFish, setLocalVoicePromptFish] = useState(apiConfig.voicePrompts?.fishaudio || '');
+  const [localVoicePromptDate, setLocalVoicePromptDate] = useState(apiConfig.voicePrompts?.dateVoice || '');
   const [showVoicePrompts, setShowVoicePrompts] = useState(false);
   const [showAceStepGuide, setShowAceStepGuide] = useState(false);
   const [otherStatusMsg, setOtherStatusMsg] = useState('');
@@ -385,6 +387,7 @@ const Settings: React.FC = () => {
       setLocalFishModel(apiConfig.fishAudioModel || 's2.1-pro');
       setLocalVoicePromptMinimax(apiConfig.voicePrompts?.minimax || '');
       setLocalVoicePromptFish(apiConfig.voicePrompts?.fishaudio || '');
+      setLocalVoicePromptDate(apiConfig.voicePrompts?.dateVoice || '');
   }, [apiConfig]);
 
   const loadPreset = (preset: typeof apiPresets[0]) => {
@@ -439,6 +442,7 @@ const Settings: React.FC = () => {
       voicePrompts: {
         minimax: localVoicePromptMinimax.trim() ? localVoicePromptMinimax : undefined,
         fishaudio: localVoicePromptFish.trim() ? localVoicePromptFish : undefined,
+        dateVoice: localVoicePromptDate.trim() ? localVoicePromptDate : undefined,
       },
     });
     setOtherStatusMsg('已保存');
@@ -460,6 +464,7 @@ const Settings: React.FC = () => {
       voicePrompts: {
         minimax: localVoicePromptMinimax.trim() ? localVoicePromptMinimax : undefined,
         fishaudio: localVoicePromptFish.trim() ? localVoicePromptFish : undefined,
+        dateVoice: localVoicePromptDate.trim() ? localVoicePromptDate : undefined,
       },
       ttsProvider: provider,
     });
@@ -480,6 +485,7 @@ const Settings: React.FC = () => {
       voicePrompts: {
         minimax: localVoicePromptMinimax.trim() ? localVoicePromptMinimax : undefined,
         fishaudio: localVoicePromptFish.trim() ? localVoicePromptFish : undefined,
+        dateVoice: localVoicePromptDate.trim() ? localVoicePromptDate : undefined,
       },
     });
   };
@@ -1446,7 +1452,7 @@ const Settings: React.FC = () => {
                     >
                         <span>
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">语音提示词（高级 · 可自定义）</span>
-                            <span className="block text-[11px] text-slate-400 mt-0.5">教模型怎么写出有情绪、有停顿的语音台词。留空则用内置默认。</span>
+                            <span className="block text-[11px] text-slate-400 mt-0.5">教模型怎么写出有情绪、有停顿的语音台词（聊天 / 电话 / 见面三处）。留空则用内置默认。</span>
                         </span>
                         <span className={`shrink-0 ml-2 text-slate-400 transition-transform ${showVoicePrompts ? 'rotate-180' : ''}`}>▾</span>
                     </button>
@@ -1458,14 +1464,15 @@ const Settings: React.FC = () => {
                             </p>
 
                             {([
-                                ['minimax', 'MiniMax 语音指南', localVoicePromptMinimax, setLocalVoicePromptMinimax, VOICE_ACTING_GUIDE] as const,
-                                ['fishaudio', '鱼声 Fish 语音指南', localVoicePromptFish, setLocalVoicePromptFish, FISH_VOICE_ACTING_GUIDE] as const,
-                            ]).map(([key, title, value, setValue, def]) => {
+                                ['minimax', 'MiniMax 语音指南', localVoicePromptMinimax, setLocalVoicePromptMinimax, VOICE_ACTING_GUIDE, '聊天 + 电话 · MiniMax 引擎时生效'] as const,
+                                ['fishaudio', '鱼声 Fish 语音指南', localVoicePromptFish, setLocalVoicePromptFish, FISH_VOICE_ACTING_GUIDE, '聊天 + 电话 · 鱼声引擎时生效'] as const,
+                                ['dateVoice', '见面（约会）语音情绪', localVoicePromptDate, setLocalVoicePromptDate, DATE_VOICE_GUIDE, '见面专用 [v:xxx] 规则 · 角色开了见面语音时生效，与引擎无关'] as const,
+                            ]).map(([key, title, value, setValue, def, hint]) => {
                                 const active = localTtsProvider === key;
                                 const usingDefault = !value.trim();
                                 return (
                                     <div key={key}>
-                                        <div className="flex items-center justify-between mb-1.5 pl-0.5">
+                                        <div className="flex items-center justify-between mb-1 pl-0.5">
                                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                                 {title}
                                                 {active && <span className="ml-1.5 text-[9px] font-bold text-primary normal-case tracking-normal">· 当前引擎</span>}
@@ -1474,6 +1481,7 @@ const Settings: React.FC = () => {
                                                 {usingDefault ? '使用内置默认' : '已自定义'}
                                             </span>
                                         </div>
+                                        <p className="text-[10px] text-slate-400 mb-1.5 pl-0.5">{hint}</p>
                                         <textarea
                                             value={value}
                                             onChange={(e) => setValue(e.target.value)}
