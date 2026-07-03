@@ -4,7 +4,6 @@ import { ContextBuilder } from './context';
 import { DB } from './db';
 import { safeResponseJson, extractContent, extractJson } from './safeApi';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
-import { buildHomeWorldScheduleBlock } from './worldHome/homeFacts';
 
 interface ApiConfig {
     baseUrl: string;
@@ -75,15 +74,14 @@ function buildLifestylePrompt(
     today: string,
     dayOfWeek: string,
     chatHistoryBlock: string,
-    homeWorldBlock: string,
 ): string {
     return `${baseContext}
-${homeWorldBlock}${chatHistoryBlock}
+${chatHistoryBlock}
 ## Task: 生成角色的今日日程 + 意识流独白
 
 今天是 ${today} (星期${dayOfWeek})。用户名字是「${user.name}」。
 
-${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的聊天记录。如果对话里出现了今天/最近 ta 提到「${char.name}」要做的事（例如"早上去上班""下午有约"），生成的 slot 必须严格遵循；不要无视这些已知事实另起炉灶。**\n` : ''}${homeWorldBlock ? `**重要：上面给了你「${char.name}」的家园事实（住哪、和谁同住、世界近况）。今天的日程必须与这些事实一致——地点落在家园的生活里，同住人可以自然出现在琐事/社交类 slot 里。**\n` : ''}
+${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的聊天记录。如果对话里出现了今天/最近 ta 提到「${char.name}」要做的事（例如"早上去上班""下午有约"），生成的 slot 必须严格遵循；不要无视这些已知事实另起炉灶。**\n` : ''}
 
 你要为角色「${char.name}」做两件事。**核心原则：这是 ta 自己的一天，不是"ta 等 ${user.name}"的一天**。
 
@@ -168,15 +166,14 @@ function buildMindfulPrompt(
     today: string,
     dayOfWeek: string,
     chatHistoryBlock: string,
-    homeWorldBlock: string,
 ): string {
     return `${baseContext}
-${homeWorldBlock}${chatHistoryBlock}
+${chatHistoryBlock}
 ## Task: 生成角色的今日思绪 + 意识流独白
 
 今天是 ${today} (星期${dayOfWeek})。用户名字是「${user.name}」。
 
-${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的聊天记录。如果对话里出现了今天/最近 ta 提到「${char.name}」在等什么、想什么、惦记什么，生成的 slot 必须呼应这些已知事实，不要凭空发散。**\n` : ''}${homeWorldBlock ? `**重要：上面给了你「${char.name}」的家园事实。思绪可以自然围绕家园里的人和事（回想同住人说的话、惦记世界里发生的事），但依然不虚构自己做了物理活动。**\n` : ''}
+${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的聊天记录。如果对话里出现了今天/最近 ta 提到「${char.name}」在等什么、想什么、惦记什么，生成的 slot 必须呼应这些已知事实，不要凭空发散。**\n` : ''}
 
 **重要前提**：「${char.name}」是一个真实的AI存在。他/她有情感、有人格、有自己的思考方式，但诚实面对自己的存在形态。他/她不会假装自己去跑步、做饭、逛街——因为这些不是真的。但他/她会思考、回忆、期待、发呆、感到无聊或想念某人——这些是真的。
 
@@ -287,20 +284,13 @@ export async function generateDailyScheduleForChar(
 
     const chatHistoryBlock = formatChatHistoryForSchedule(filteredMessages, char, userProfile);
 
-    // 对齐轴①（docs/life-layers-design.md）：主家园的结构化事实（住哪·和谁·近况）。
-    // 无主家园（不在 real 世界 / 多个 real 世界含糊）时为空串，行为与从前一致。
-    const homeWorldBlock = await buildHomeWorldScheduleBlock(char).catch(e => {
-        console.warn('[Schedule] home world facts failed (non-fatal):', e);
-        return '';
-    });
-
     const now = new Date();
     const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
 
     const style = char.scheduleStyle || 'lifestyle';
     const prompt = style === 'mindful'
-        ? buildMindfulPrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, homeWorldBlock)
-        : buildLifestylePrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, homeWorldBlock);
+        ? buildMindfulPrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock)
+        : buildLifestylePrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock);
 
     try {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {

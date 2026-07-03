@@ -519,20 +519,6 @@ export interface DailySchedule {
     flowNarrative?: Record<string, string>;
 }
 
-/**
- * 小屋「生活动态」一条（ambient delta，生活三层派生链 · 阶段E）。
- * 由情绪评估顺风车偶尔捎带产出（见 utils/roomAmbient.ts），涓流替代旧的每日全量刷新。
- */
-export interface RoomAmbientEvent {
-    id: string;
-    /** 一句话的小变化（"把飘窗那本书换成了新的一本"） */
-    text: string;
-    emoji?: string;
-    /** 指向某件家具（RoomItem.id）时，小屋里可高亮它 */
-    targetItemId?: string;
-    timestamp: number;
-}
-
 export interface RoomGeneratedState {
     actorStatus: string;
     welcomeMessage: string;
@@ -2204,18 +2190,6 @@ export interface CharacterProfile {
   scheduleFeatureEnabled?: boolean;
 
   /**
-   * 主家园：用户手动指定的 canonical 家园（WorldProfile.id）。
-   * 生活三层派生链（docs/life-layers-design.md）的上游事实源：日程生成读它对齐「住哪·和谁」。
-   * - 已设且该世界仍满足 real + injectToChat：直接采用。
-   * - 未设：角色恰好只在 1 个 real 世界时视为主家园；在多个 real 世界时视为含糊、不注入
-   *   （消歧靠用户在角色档案里手动指定——阶段 C 的选择器 UI）。
-   */
-  primaryHomeId?: string;
-
-  /** 小屋「生活动态」feed（新在前，封顶 30 条）。由情绪评估顺风车涓流产出，见 utils/roomAmbient.ts */
-  roomAmbientFeed?: RoomAmbientEvent[];
-
-  /**
    * HTML 模块模式（per-character）。
    * - htmlModeEnabled：开启后，给 LLM 注入"用 [html]...[/html] 包裹的富 HTML 卡片"提示词，
    *   AI 输出里的 [html] 块会被解析成单独的 html_card 消息（沙盒 iframe 渲染）。
@@ -2799,7 +2773,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card';
 
 export interface Message {
     id: number;
