@@ -1331,7 +1331,8 @@ export const useChatAI = ({
                                 // 归宿已改为 self_room 门牌（digestion 内部提交），这里只负责弹窗昭告
                                 const total = result.resolved.length + result.deepened.length + result.faded.length +
                                     result.fulfilled.length + result.disappointed.length + result.internalized.length +
-                                    result.synthesizedUser.length + result.selfInsights.length + result.selfConfused.length;
+                                    result.synthesizedUser.length + result.selfInsights.length + result.selfConfused.length +
+                                    (result.worries?.length || 0) + (result.aspirations?.length || 0) + (result.distilled?.length || 0);
                                 if (total > 0) {
                                     setLastDigestResult(result);
                                 }

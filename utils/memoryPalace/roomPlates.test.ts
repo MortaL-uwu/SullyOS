@@ -3,8 +3,9 @@ import {
     mergePlateEntries,
     violatesBedroomRule,
     formatRoomPlatesSection,
+    pickMaterialLines,
 } from './roomPlates';
-import type { PlateEntry, RoomPlate } from './types';
+import type { MemoryNode, PlateEntry, RoomPlate } from './types';
 import { PLATE_ENTRY_CAPS, PLATE_ENTRY_HARD_MAX_CHARS } from './types';
 
 const NOW = 1_700_000_000_000;
@@ -108,6 +109,56 @@ describe('卧室门牌 — 禁止给关系命名', () => {
         // user_room 里"TA和男友的关系"是合法的用户事实，不适用卧室规则
         const userRoom = mergePlateEntries('user_room', [], [{ text: '和男友同居，感情稳定' }], NOW);
         expect(userRoom).toHaveLength(1);
+    });
+});
+
+describe('pickMaterialLines — 门牌原料挑选（recency 窗口 + 锚点）', () => {
+    const SINCE = 1_700_000_000_000;
+    function node(id: string, over: Partial<MemoryNode> = {}): MemoryNode {
+        return {
+            id, charId: 'c1', content: `内容-${id}`, room: 'bedroom',
+            tags: [], importance: 5, mood: 'peaceful', embedded: true,
+            createdAt: SINCE + 1000, lastAccessedAt: SINCE, accessCount: 0,
+            ...over,
+        };
+    }
+
+    it('盒子 summary 优先，其次窗口内新节点按时近降序', () => {
+        const nodes = [
+            node('old_fresh', { createdAt: SINCE + 1000 }),
+            node('new_fresh', { createdAt: SINCE + 9000 }),
+            node('summary', { isBoxSummary: true, createdAt: SINCE - 5000 }),
+        ];
+        const lines = pickMaterialLines(nodes, 'bedroom', SINCE);
+        expect(lines).toEqual(['内容-summary', '内容-new_fresh', '内容-old_fresh']);
+    });
+
+    it('sinceTs 之前的老节点只留 5 条高分锚点', () => {
+        const olds = Array.from({ length: 10 }, (_, i) =>
+            node(`old_${i}`, { createdAt: SINCE - 1000 - i, importance: i })); // importance 0..9
+        const lines = pickMaterialLines(olds, 'bedroom', SINCE);
+        expect(lines).toHaveLength(5);
+        expect(lines[0]).toBe('内容-old_9'); // importance 最高的先来
+    });
+
+    it('sinceTs=0 时全部按时近排序（无锚点截断，兼容旧行为）', () => {
+        const olds = Array.from({ length: 10 }, (_, i) =>
+            node(`n_${i}`, { createdAt: SINCE - i * 1000 }));
+        const lines = pickMaterialLines(olds, 'bedroom', 0);
+        expect(lines).toHaveLength(10);
+        expect(lines[0]).toBe('内容-n_0'); // 最新的在前
+    });
+
+    it('archived 与其他房间的节点被排除，总量 cap 15', () => {
+        const nodes = [
+            node('archived', { archived: true }),
+            node('other_room', { room: 'study' }),
+            ...Array.from({ length: 20 }, (_, i) => node(`f_${i}`, { createdAt: SINCE + i })),
+        ];
+        const lines = pickMaterialLines(nodes, 'bedroom', SINCE);
+        expect(lines).toHaveLength(15);
+        expect(lines).not.toContain('内容-archived');
+        expect(lines).not.toContain('内容-other_room');
     });
 });
 

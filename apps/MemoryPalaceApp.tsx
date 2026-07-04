@@ -1422,6 +1422,9 @@ export default function MemoryPalaceApp() {
                 if (result.synthesizedUser.length) parts.push(`${result.synthesizedUser.length} 条用户认知整合`);
                 if (result.selfInsights.length) parts.push(`${result.selfInsights.length} 条自我领悟`);
                 if (result.selfConfused.length) parts.push(`${result.selfConfused.length} 条新困惑`);
+                if (result.worries?.length) parts.push(`${result.worries.length} 条回看担忧`);
+                if (result.aspirations?.length) parts.push(`${result.aspirations.length} 个新期盼`);
+                if (result.distilled?.length) parts.push(`${result.distilled.length} 条沉淀到门牌`);
                 setDigestResult(parts.length > 0 ? `[ok]${parts.join('，')}` : '没有变化');
             }
             loadStats();

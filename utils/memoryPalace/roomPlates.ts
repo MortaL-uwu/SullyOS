@@ -318,18 +318,29 @@ export async function updatePlateFromBoxSummary(
 /** 每房间送入 LLM 的原料上限与单条截断长度 */
 const MATERIAL_NODES_PER_ROOM = 15;
 const MATERIAL_LINE_MAX_CHARS = 160;
+/** sinceTs 窗口之前的老节点最多留几条高分锚点（防止每轮重复喂同一批高分老货） */
+const MATERIAL_ANCHOR_CAP = 5;
 
 /**
- * 从房间里挑蒸馏原料：盒子 summary 优先（它们已是整合过的结论），
- * 其余按 importance 降序补足；排除 archived（已被压进 summary）。
+ * 从房间里挑蒸馏原料，优先级：
+ *   1. 盒子 summary（已是整合过的结论）
+ *   2. sinceTs 之后的新节点（按时近降序）——"这段时间的新经历"
+ *   3. sinceTs 之前的老节点按 importance 取最多 MATERIAL_ANCHOR_CAP 条锚点
+ * 排除 archived（已被压进 summary）。sinceTs=0 时全部算新节点（老行为兼容）。
  */
-function pickMaterialLines(nodes: MemoryNode[], room: PlateRoom): string[] {
+export function pickMaterialLines(nodes: MemoryNode[], room: PlateRoom, sinceTs: number = 0): string[] {
     const candidates = nodes.filter(n => n.room === room && !n.archived);
     const summaries = candidates.filter(n => n.isBoxSummary);
-    const others = candidates
-        .filter(n => !n.isBoxSummary)
-        .sort((a, b) => b.importance - a.importance || b.createdAt - a.createdAt);
-    return [...summaries, ...others]
+    const fresh = candidates
+        .filter(n => !n.isBoxSummary && n.createdAt > sinceTs)
+        .sort((a, b) => b.createdAt - a.createdAt);
+    const anchors = sinceTs > 0
+        ? candidates
+            .filter(n => !n.isBoxSummary && n.createdAt <= sinceTs)
+            .sort((a, b) => b.importance - a.importance || b.createdAt - a.createdAt)
+            .slice(0, MATERIAL_ANCHOR_CAP)
+        : [];
+    return [...summaries, ...fresh, ...anchors]
         .slice(0, MATERIAL_NODES_PER_ROOM)
         .map(n => n.content.replace(/\s+/g, ' ').trim().slice(0, MATERIAL_LINE_MAX_CHARS));
 }
@@ -339,8 +350,10 @@ function pickMaterialLines(nodes: MemoryNode[], room: PlateRoom): string[] {
  * 也可从 UI 手动触发。一次 LLM 调用覆盖全部房间。
  *
  * @param extraMaterial 消化状态机之外提交的蒸馏候选（synthesize_user /
- *   internalize / self_insight 的产出）。放在原料最前——它们是本次消化
- *   刚提炼的概括，优先级高于按 importance 挑出的旧节点，且不占节点配额。
+ *   internalize / self_insight / distill 的产出）。放在原料最前——它们是
+ *   本次消化刚提炼的概括，优先级高于旧节点，且不占节点配额。
+ * @param sinceTs 上次消化时间戳：节点原料以该时间之后的新增优先，
+ *   老节点只留少量高分锚点（避免每轮重复喂同一批高分老货）。
  */
 export async function consolidateAllPlates(
     charId: string,
@@ -348,6 +361,7 @@ export async function consolidateAllPlates(
     userName: string | undefined,
     llmConfig: LightLLMConfig,
     extraMaterial?: Partial<Record<PlateRoom, string[]>>,
+    sinceTs: number = 0,
 ): Promise<{ updated: PlateRoom[] }> {
     const allNodes = await MemoryNodeDB.getByCharId(charId);
     const materials: PlateMaterial[] = PLATE_ROOMS.map(room => {
@@ -357,7 +371,7 @@ export async function consolidateAllPlates(
             .map(l => l.slice(0, MATERIAL_LINE_MAX_CHARS * 2)); // 领悟全文可到 200 字，放宽截断
         return {
             room,
-            lines: [...extra, ...pickMaterialLines(allNodes, room)],
+            lines: [...extra, ...pickMaterialLines(allNodes, room, sinceTs)],
         };
     });
     return consolidatePlates(charId, charName, userName || '用户', materials, llmConfig);
