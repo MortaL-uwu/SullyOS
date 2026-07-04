@@ -20,6 +20,7 @@ const MP_STORES = [
     'topic_boxes',
     'anticipations',
     'event_boxes',
+    'room_plates',
 ];
 
 /** 清空 localStorage 中所有 mp_lastMsgId_<charId> 高水位标记 */

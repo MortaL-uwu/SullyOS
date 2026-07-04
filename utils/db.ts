@@ -16,7 +16,7 @@ import { exportMcdLocal, importMcdLocal } from './mcdMcpClient';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 
 const DB_NAME = 'AetherOS_Data';
-const DB_VERSION = 64; // Bumped: v64 ensure worlds / world_episodes stores exist（v63 漏建：已到 v63 的库不会再触发 upgrade，补一版重建）
+const DB_VERSION = 65; // Bumped: v65 记忆宫殿房间门牌 room_plates（情景→语义固化层）
 
 const STORE_CHARACTERS = 'characters';
 const STORE_MESSAGES = 'messages';
@@ -372,6 +372,12 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains('event_boxes')) {
           const ebStore = db.createObjectStore('event_boxes', { keyPath: 'id' });
           ebStore.createIndex('charId', 'charId', { unique: false });
+      }
+
+      // ─── 房间门牌（v65 新增，情景→语义固化层） ───────
+      if (!db.objectStoreNames.contains('room_plates')) {
+          const rpStore = db.createObjectStore('room_plates', { keyPath: 'id' });
+          rpStore.createIndex('charId', 'charId', { unique: false });
       }
 
       // ─── v48 一次性强制清空记忆宫殿（EventBox 体系，旧 boxId 数据不兼容） ───

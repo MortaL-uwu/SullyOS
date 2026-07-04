@@ -8,13 +8,13 @@ export type {
     LinkType, MemoryLink, BoxStatus, TopicBox, TopicContinuity,
     AnticipationStatus, Anticipation, MemoryBatch,
     PersonalityStyle, EmbeddingConfig, ScoredMemory, RemoteVectorConfig,
-    EventBox,
+    EventBox, PlateRoom, PlateEntry, RoomPlate,
 } from './types';
 
-export { ROOM_CONFIGS, ROOM_LABELS, getRoomLabel, PERSONALITY_WEIGHTS, EVENT_BOX_COMPRESSION_THRESHOLD } from './types';
+export { ROOM_CONFIGS, ROOM_LABELS, getRoomLabel, PERSONALITY_WEIGHTS, EVENT_BOX_COMPRESSION_THRESHOLD, PLATE_ROOMS, PLATE_TITLES, PLATE_ENTRY_CAPS } from './types';
 
 // 数据库
-export { MemoryNodeDB, MemoryVectorDB, MemoryLinkDB, MemoryBatchDB, TopicBoxDB, AnticipationDB, EventBoxDB } from './db';
+export { MemoryNodeDB, MemoryVectorDB, MemoryLinkDB, MemoryBatchDB, TopicBoxDB, AnticipationDB, EventBoxDB, RoomPlateDB } from './db';
 
 // Embedding
 export { getEmbedding, getEmbeddings, cosineSimilarity } from './embedding';
@@ -66,6 +66,12 @@ export {
 export {
     maybeCompressEventBoxes, compressAllEligibleBoxes,
 } from './eventBoxCompression';
+
+// 房间门牌（情景→语义固化层）
+export {
+    consolidateAllPlates, updatePlateFromBoxSummary,
+    buildRoomPlatesInjection, formatRoomPlatesSection, isPlateRoom,
+} from './roomPlates';
 
 // 一键清空（本地 + 云端）
 export { wipeAllMemoryPalace } from './wipe';

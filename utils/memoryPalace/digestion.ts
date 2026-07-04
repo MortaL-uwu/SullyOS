@@ -672,6 +672,13 @@ export async function runCognitiveDigestion(
         material.userRoomNodes.length === 0 &&
         material.selfRoomNodes.length === 0) {
         if (embeddingConfig) await vectorizeOrphanedNodes(charId, embeddingConfig);
+        // 门牌整理不受消化门槛限制：卧室节点从不进消化材料池，但「我们之间」需要它们
+        try {
+            const { consolidateAllPlates } = await import('./roomPlates');
+            await consolidateAllPlates(charId, charName, userName, llmConfig);
+        } catch (e: any) {
+            console.warn(`🚪 [Digest] 门牌整理失败（不影响消化结果）: ${e?.message || e}`);
+        }
         markDigested(charId);
         return { resolved: [], deepened: [], faded: [], fulfilled: [], disappointed: [], internalized: [], synthesizedUser: [], selfInsights: [], selfConfused: [] };
     }
@@ -686,6 +693,18 @@ export async function runCognitiveDigestion(
 
     // 向量化本次新建的节点 + 任何历史遗留的孤儿节点
     if (embeddingConfig) await vectorizeOrphanedNodes(charId, embeddingConfig);
+
+    // 门牌全量整理：消化是"独处反思"，正是把情景沉淀为语义的时机。
+    // 放在 executeActions 之后 —— synthesize_user 等衍生节点已落库，能进原料池。
+    try {
+        const { consolidateAllPlates } = await import('./roomPlates');
+        const plateResult = await consolidateAllPlates(charId, charName, userName, llmConfig);
+        if (plateResult.updated.length > 0) {
+            console.log(`🚪 [Digest] 门牌整理完成：${plateResult.updated.join(', ')}`);
+        }
+    } catch (e: any) {
+        console.warn(`🚪 [Digest] 门牌整理失败（不影响消化结果）: ${e?.message || e}`);
+    }
 
     // 重置轮数计数器 & 标记时间
     resetDigestRounds(charId);

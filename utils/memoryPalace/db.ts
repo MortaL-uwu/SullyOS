@@ -8,7 +8,7 @@ import { openDB } from '../db';
 import type {
     MemoryNode, MemoryVector, MemoryLink, MemoryBatch,
     TopicBox, Anticipation, MemoryRoom, BoxStatus, AnticipationStatus,
-    EventBox,
+    EventBox, RoomPlate, PlateRoom,
 } from './types';
 import { bm25Index } from './bm25Index';
 import type { VectorIndexEntry as VectorBackupIndexEntry } from '../backupFormat';
@@ -22,6 +22,7 @@ const STORE_MEMORY_BATCHES = 'memory_batches';
 const STORE_TOPIC_BOXES    = 'topic_boxes';
 const STORE_ANTICIPATIONS  = 'anticipations';
 const STORE_EVENT_BOXES    = 'event_boxes';
+const STORE_ROOM_PLATES    = 'room_plates';
 
 // ─── 通用辅助 ──────────────────────────────────────────
 
@@ -556,6 +557,26 @@ export const EventBoxDB = {
             tx.onerror = () => reject(tx.error);
         });
     },
+};
+
+// ─── RoomPlate CRUD（房间门牌） ───────────────────────
+
+/** 门牌主键：一角色一房间一块 */
+export function plateId(charId: string, room: PlateRoom): string {
+    return `${charId}:${room}`;
+}
+
+export const RoomPlateDB = {
+    save: (plate: RoomPlate) => put<RoomPlate>(STORE_ROOM_PLATES, plate),
+
+    get: (charId: string, room: PlateRoom) =>
+        getByKey<RoomPlate>(STORE_ROOM_PLATES, plateId(charId, room)),
+
+    getByCharId: (charId: string) =>
+        getAllByIndex<RoomPlate>(STORE_ROOM_PLATES, 'charId', charId),
+
+    delete: (charId: string, room: PlateRoom) =>
+        deleteByKey(STORE_ROOM_PLATES, plateId(charId, room)),
 };
 
 // ─── Anticipation CRUD ────────────────────────────────
