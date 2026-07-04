@@ -197,14 +197,29 @@ const StageItem = React.memo<{ item: RoomItem }>(({ item }) => (
     </div>
 ));
 
-// ─── 天窗挂饰（舞台顶部小窗 + 流星 + 悬星，纯静态 CSS）────────────
-const StageWindow = React.memo(() => (
+// ─── 天窗挂饰（舞台顶部小窗 + 流星 + 悬星，纯静态 CSS；随昼夜换天）────
+const StageWindow = React.memo<{ night: boolean }>(({ night }) => (
     <div className="absolute top-[4%] left-[5%] right-[5%] h-[13%] pointer-events-none" style={{ zIndex: 0 }}>
-        <div className="absolute inset-0 rounded-xl overflow-hidden" style={{ border: '3px solid rgba(255,255,255,0.9)', background: 'linear-gradient(180deg, #bfe0f7 0%, #dff0fc 70%, #f0f8fe 100%)', boxShadow: '0 3px 10px rgba(150,120,200,0.25)' }}>
-            {/* 云朵（静态圆角块，无 blur） */}
-            <div className="absolute top-[28%] left-[12%] w-[26%] h-[36%] rounded-full" style={{ background: 'rgba(255,255,255,0.85)' }} />
-            <div className="absolute top-[18%] left-[22%] w-[18%] h-[34%] rounded-full" style={{ background: 'rgba(255,255,255,0.75)' }} />
-            <div className="absolute top-[42%] right-[16%] w-[22%] h-[32%] rounded-full" style={{ background: 'rgba(255,255,255,0.7)' }} />
+        <div className="absolute inset-0 rounded-xl overflow-hidden" style={{
+            border: '3px solid rgba(255,255,255,0.9)',
+            background: night
+                ? 'linear-gradient(180deg, #2c2851 0%, #453e73 60%, #57508a 100%)'
+                : 'linear-gradient(180deg, #bfe0f7 0%, #dff0fc 70%, #f0f8fe 100%)',
+            boxShadow: '0 3px 10px rgba(150,120,200,0.25)',
+        }}>
+            {/* 云朵（静态圆角块，无 blur）：夜里变成淡淡的夜云 */}
+            <div className="absolute top-[28%] left-[12%] w-[26%] h-[36%] rounded-full" style={{ background: night ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.85)' }} />
+            <div className="absolute top-[18%] left-[22%] w-[18%] h-[34%] rounded-full" style={{ background: night ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.75)' }} />
+            <div className="absolute top-[42%] right-[16%] w-[22%] h-[32%] rounded-full" style={{ background: night ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.7)' }} />
+            {/* 夜空专属：一轮弯月 + 满窗星星 */}
+            {night && (
+                <>
+                    <span className="absolute top-[14%] left-[10%] text-[14px] leading-none" style={{ textShadow: '0 0 10px rgba(247,209,128,0.8)' }}>🌙</span>
+                    <span className="absolute top-[52%] left-[30%] text-[6px]" style={{ color: '#efe8b8', animation: 'tama-twinkle 3.1s ease-in-out 0.8s infinite' }}>✦</span>
+                    <span className="absolute top-[26%] left-[58%] text-[7px]" style={{ color: '#fff', animation: 'tama-twinkle 2.4s ease-in-out 1.4s infinite' }}>✦</span>
+                    <span className="absolute top-[60%] right-[10%] text-[6px]" style={{ color: '#cdc6f0' }}>✦</span>
+                </>
+            )}
             {/* 流星 */}
             <div className="absolute top-[24%] left-[42%] w-[18%] h-[2px] rotate-[24deg] origin-left rounded-full" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.95))' }} />
             <span className="absolute top-[12%] right-[36%] text-[9px]" style={{ color: '#fff', animation: 'tama-twinkle 2.8s ease-in-out infinite' }}>✦</span>
@@ -338,7 +353,7 @@ const RoomStage = React.memo<{
             <div className="absolute top-0 left-0 w-full h-[65%] z-0" style={{ background: wallStyle }} />
             <div className="absolute bottom-0 left-0 w-full h-[35%] z-0" style={{ background: floorStyle }} />
             <div className="absolute top-[65%] w-full h-6 bg-gradient-to-b from-black/10 to-transparent pointer-events-none z-0" />
-            <StageWindow />
+            <StageWindow night={night} />
 
             {items.map(item => <StageItem key={item.id} item={item} />)}
 
@@ -356,26 +371,26 @@ const RoomStage = React.memo<{
 ));
 
 // ─── 底部五键 dock（参考稿：CARE / TALK / HOME / ALBUM / SETTINGS）───
+// 图标一律 currentColor：扁平手绘风里图标用描边同色，不用白色
 const DOCK_GLYPHS: Record<string, React.ReactNode> = {
-    heart: <svg viewBox="0 0 24 24" className="w-full h-full" fill="#fff"><path d="M12 21s-7.5-4.9-9.8-9.2C.7 8.9 2.4 5.4 5.7 5.1c1.9-.2 3.7.8 4.7 2.4h3.2c1-1.6 2.8-2.6 4.7-2.4 3.3.3 5 3.8 3.5 6.7C19.5 16.1 12 21 12 21z" transform="scale(0.92) translate(1,1)" /></svg>,
-    talk: <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3c-1.4 0-2.8-.3-4-.9L3 20l1.2-4.3a8 8 0 0 1-1.2-4.2A8.4 8.4 0 0 1 11.5 3.2 8.4 8.4 0 0 1 21 11.5z" /><circle cx="8.5" cy="11.5" r="0.6" fill="#fff" /><circle cx="12" cy="11.5" r="0.6" fill="#fff" /><circle cx="15.5" cy="11.5" r="0.6" fill="#fff" /></svg>,
+    heart: <svg viewBox="0 0 24 24" className="w-full h-full" fill="currentColor"><path d="M12 21s-7.5-4.9-9.8-9.2C.7 8.9 2.4 5.4 5.7 5.1c1.9-.2 3.7.8 4.7 2.4h3.2c1-1.6 2.8-2.6 4.7-2.4 3.3.3 5 3.8 3.5 6.7C19.5 16.1 12 21 12 21z" transform="scale(0.92) translate(1,1)" /></svg>,
+    talk: <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3c-1.4 0-2.8-.3-4-.9L3 20l1.2-4.3a8 8 0 0 1-1.2-4.2A8.4 8.4 0 0 1 11.5 3.2 8.4 8.4 0 0 1 21 11.5z" /><circle cx="8.5" cy="11.5" r="0.6" fill="currentColor" /><circle cx="12" cy="11.5" r="0.6" fill="currentColor" /><circle cx="15.5" cy="11.5" r="0.6" fill="currentColor" /></svg>,
     home: <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11.5 12 4l9 7.5" /><path d="M5.5 10v9h13v-9" /><path d="M10 19v-5h4v5" /></svg>,
-    album: <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2.5" /><path d="M8 3.5v17" /><path d="M14.2 8.4l.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z" fill="#fff" stroke="none" /></svg>,
-    gear: <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3h-4l-.4 2.5a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.4 2.5h4l.4-2.5a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z" /></svg>,
+    album: <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2.5" /><path d="M8 3.5v17" /><path d="M14.2 8.4l.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z" fill="currentColor" stroke="none" /></svg>,
+    gear: <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3h-4l-.4 2.5a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.4 2.5h4l.4-2.5a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z" /></svg>,
 };
 
-// 糖果凸键：竖向渐变 + 顶部高光帽 + 白描边 + 彩色投影 + 角落小星
-const DockKey: React.FC<{ glyph: string; label: string; top: string; deep: string; badge?: number; onClick: () => void }> = ({ glyph, label, top, deep, badge = 0, onClick }) => (
+// 扁平手绘贴纸键：浅色平涂底 + 同色系描边 + 图标同描边色 + 极淡平面投影
+// （不要渐变鼓凸 / 高光帽 / 彩色辉光——那套显廉价，参考 MobileGameHome 的扁平手绘卡）
+const DockKey: React.FC<{ glyph: string; label: string; fill: string; line: string; badge?: number; onClick: () => void }> = ({ glyph, label, fill, line, badge = 0, onClick }) => (
     <button onClick={onClick} className="flex flex-col items-center gap-1 group active:scale-90 transition-transform">
-        <div className="relative w-11 h-11 rounded-[1.05rem] flex items-center justify-center"
-            style={{ background: `linear-gradient(180deg, ${top}, ${deep})`, border: '2px solid rgba(255,255,255,0.85)', boxShadow: `0 4px 10px ${deep}66` }}>
-            {/* 顶部高光帽（静态渐变） */}
-            <div className="absolute top-[4px] left-1/2 -translate-x-1/2 w-[64%] h-[30%] rounded-full pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0))' }} />
-            <span className="absolute top-[3px] right-[5px] text-[7px] pointer-events-none" style={{ color: 'rgba(255,255,255,0.9)' }}>✦</span>
+        <div className="relative w-11 h-11 rounded-[1rem] flex items-center justify-center"
+            style={{ background: fill, border: `2px solid ${line}`, boxShadow: '0 2px 5px rgba(122,108,184,0.16)', color: line }}>
+            <span className="absolute top-[3px] right-[5px] text-[7px] pointer-events-none" style={{ color: line, opacity: 0.55 }}>✦</span>
             <div className="w-5 h-5">{DOCK_GLYPHS[glyph]}</div>
             {badge > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 min-w-[17px] h-[17px] px-1 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                    style={{ background: `linear-gradient(135deg, ${PAL.pink}, ${PAL.hot})`, border: '1.5px solid #fff' }}>{badge > 99 ? '99+' : badge}</span>
+                    style={{ background: PAL.hot, border: '1.5px solid #fff' }}>{badge > 99 ? '99+' : badge}</span>
             )}
         </div>
         <span className="text-[9px] font-bold tracking-[0.1em]" style={{ fontFamily: FONT_PX, color: PAL.ink }}>{label}</span>
@@ -474,13 +489,11 @@ const TamagotchiHome: React.FC = () => {
                     <span className="text-[13px] font-bold tracking-[0.26em] truncate" style={{ fontFamily: FONT_PX, color: PAL.grape, textShadow: '0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(190,160,255,0.55)' }}>SULLY·GOTCHI</span>
                     <span className="text-[9px] shrink-0" style={{ color: PAL.gold, animation: 'tama-twinkle 2.6s ease-in-out infinite' }}>✦</span>
                 </div>
-                <div className="rounded-xl p-[2px] shrink-0" style={{ background: RIM, boxShadow: '0 3px 8px rgba(160,120,210,0.3)' }}>
-                    <button onClick={() => setDrawerOpen(true)} aria-label="全部应用"
-                        className="w-9 h-8 rounded-[0.65rem] flex items-center justify-center active:scale-90 transition-transform"
-                        style={{ background: PAL.cream }}>
-                        <span className="text-[15px] font-bold leading-none tracking-widest" style={{ fontFamily: FONT_PX, color: PAL.ink }}>⋯</span>
-                    </button>
-                </div>
+                <button onClick={() => setDrawerOpen(true)} aria-label="全部应用"
+                    className="w-10 h-9 rounded-xl flex items-center justify-center active:scale-90 transition-transform shrink-0"
+                    style={{ background: PAL.cream, border: `2px solid ${PAL.frame}`, boxShadow: '0 2px 5px rgba(122,108,184,0.16)' }}>
+                    <span className="text-[15px] font-bold leading-none tracking-widest" style={{ fontFamily: FONT_PX, color: PAL.ink }}>⋯</span>
+                </button>
             </div>
 
             {char ? (
@@ -510,21 +523,19 @@ const TamagotchiHome: React.FC = () => {
                         <div className="relative rounded-[1.35rem] px-3 pt-2 pb-1.5 flex items-end justify-between"
                             style={{ background: 'rgba(255,255,255,0.88)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.95)' }}>
                             <Sparkles items={[[6, 18, 8, PAL.pink, 0.7], [94, 22, 8, PAL.peri, 0.7], [50, 6, 7, PAL.gold, 0.8, true]]} />
-                            <DockKey glyph="heart" label="CARE" top="#f7a8b8" deep="#ee7d9c" onClick={() => openApp(AppID.Date)} />
-                            <DockKey glyph="talk" label="TALK" top="#9fdcc0" deep="#5fbf96" badge={totalUnread} onClick={openChat} />
-                            {/* 中央 HOME：渐变环 + 悬浮 */}
+                            <DockKey glyph="heart" label="CARE" fill="#fcd6de" line="#e0748f" onClick={() => openApp(AppID.Date)} />
+                            <DockKey glyph="talk" label="TALK" fill="#cdeede" line="#58ab84" badge={totalUnread} onClick={openChat} />
+                            {/* 中央 HOME：扁平贴纸悬浮（同样不鼓凸） */}
                             <button onClick={openRoom} className="relative flex flex-col items-center gap-1 -mt-6 active:scale-95 transition-transform">
-                                <div className="w-[3.6rem] h-[3.6rem] rounded-[1.3rem] p-[3px]" style={{ background: RIM, boxShadow: '0 6px 16px rgba(234,118,180,0.45)' }}>
-                                    <div className="relative w-full h-full rounded-[1.05rem] flex items-center justify-center" style={{ background: `linear-gradient(180deg, #ffffff, ${PAL.cream})`, color: PAL.grape }}>
-                                        <div className="absolute top-[3px] left-1/2 -translate-x-1/2 w-[60%] h-[24%] rounded-full pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0))' }} />
-                                        <div className="w-7 h-7">{DOCK_GLYPHS.home}</div>
-                                        <span className="absolute -top-1 -right-1 text-[10px]" style={{ color: PAL.gold, animation: 'tama-twinkle 2s ease-in-out infinite' }}>✦</span>
-                                    </div>
+                                <div className="relative w-[3.6rem] h-[3.6rem] rounded-[1.2rem] flex items-center justify-center"
+                                    style={{ background: '#fffdf8', border: `2px solid ${PAL.frame}`, boxShadow: '0 3px 8px rgba(122,108,184,0.2)', color: PAL.grape }}>
+                                    <div className="w-7 h-7">{DOCK_GLYPHS.home}</div>
+                                    <span className="absolute -top-1 -right-1 text-[10px]" style={{ color: PAL.gold, animation: 'tama-twinkle 2s ease-in-out infinite' }}>✦</span>
                                 </div>
                                 <span className="text-[9px] font-bold tracking-[0.1em]" style={{ fontFamily: FONT_PX, color: PAL.ink }}>HOME</span>
                             </button>
-                            <DockKey glyph="album" label="ALBUM" top="#c9b8f2" deep="#a186e0" onClick={() => openApp(AppID.MemoryPalace)} />
-                            <DockKey glyph="gear" label="SETTINGS" top="#b8c4ee" deep="#8b9be0" onClick={() => openApp(AppID.Settings)} />
+                            <DockKey glyph="album" label="ALBUM" fill="#e4dbf8" line="#9678d8" onClick={() => openApp(AppID.MemoryPalace)} />
+                            <DockKey glyph="gear" label="SETTINGS" fill="#d9def5" line="#7f8fd0" onClick={() => openApp(AppID.Settings)} />
                         </div>
                     </div>
                 </>
