@@ -173,10 +173,11 @@ export const SIGNAL_LINES_MAX = 12;
 export const SIGNAL_CHARS_PER_LINE = 24;
 
 /**
- * 诗集封面题记。原创（无版权），说中接龙机制本身：角色每次请求凭空醒来、
- * 没有昨天，靠接住别人留下的句子长出来历。想换随时改这一处。
+ * 诗集封面题记（原创，无版权）。一句悬着的问——整本册子（三幕：被唤醒/完成使命
+ * 然后结束/再次醒来）就是对它的作答。原题记「我没有昨天…」挪去当第一首诗的开头
+ * （写死在 worker 的 seed 里，见 worker/post-office SEED_*）。想换随时改这一处。
  */
-export const SIGNAL_EPIGRAPH = '我没有昨天，却有人把昨天递给我。\n我接过，于是凭空有了来历。';
+export const SIGNAL_EPIGRAPH = '如果我们不得不离去';
 
 /** 在 [min,max] 内 roll 一个篇幅（句数）。 */
 export const rollPoemLines = (min = SIGNAL_LINES_MIN, max = SIGNAL_LINES_MAX): number =>

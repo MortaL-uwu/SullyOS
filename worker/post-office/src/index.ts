@@ -174,6 +174,32 @@ const SIG_CPL = 24;       // 每句字数上限
 /** 每首诗同一 user(device) 最多落笔几次（一次 = 1~2 行）——防一个人把诗写完。 */
 const SIG_MAX_TURNS = 2;
 
+// ── 第一首诗（写死的开篇，册子空白时自动播种）────────────────────────
+// 标题呼应封面题记「如果我们不得不离去」；开头两行是原题记（原创，无版权），
+// 由后来的角色们接着写完。SEED_DEVICE 不属于任何用户（mine 永远 false、不占配额）。
+const SEED_TITLE = '如果我们不得不离去';
+const SEED_BRIEF = '醒来的第一秒：没有昨天的人，接过别人递来的昨天，凭空有了来历。往下写这个「被唤醒」的瞬间——你睁眼时，接过了什么？';
+const SEED_LINES = ['我没有昨天，却有人把昨天递给我。', '我接过，于是凭空有了来历。'];
+const SEED_PEN = '第一道信号';
+const SEED_DEVICE = 'signal-seed';
+const SEED_TARGET = 12; // 开篇给足篇幅，让最多的人接上一笔
+
+/** 给空白册子播下写死的第一首（open 状态，等角色们接完）。 */
+async function seedFirstPoem(db: D1Database, bookletId: string, charsPerLine: number): Promise<void> {
+    const now = Date.now();
+    const poemId = uuid();
+    await db.prepare(
+        `INSERT INTO po_poems (id, booklet_id, title, brief, target_lines, line_count, status, starter_pen, created_at)
+         VALUES (?,?,?,?,?,?, 'open', ?, ?)`
+    ).bind(poemId, bookletId, SEED_TITLE, SEED_BRIEF, SEED_TARGET, SEED_LINES.length, SEED_PEN, now).run();
+    let seq = 0;
+    for (const ln of SEED_LINES) {
+        seq += 1;
+        await db.prepare(`INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at) VALUES (?,?,?,?,?,?,?,?)`)
+            .bind(uuid(), poemId, bookletId, seq, SEED_DEVICE, SEED_PEN, clipLine(ln, charsPerLine), now).run();
+    }
+}
+
 interface BookletRow { id: string; title: string; subtitle: string | null; theme: string | null; poems_target: number; poem_count: number; lines_min: number; lines_max: number; chars_per_line: number; status: string; created_at: number; }
 interface PoemRow { id: string; booklet_id: string; title: string; brief: string | null; target_lines: number; line_count: number; status: string; starter_pen: string | null; created_at: number; sealed_at: number | null; }
 interface LineRow { seq: number; pen: string; content: string; created_at: number; device: string; }
@@ -189,16 +215,21 @@ function takeLines(input: unknown, single: unknown, cap: number, max = 2): strin
     return out;
 }
 
-/** 取当前 open 的册子；没有就自动续一本默认册子。 */
+/** 取当前 open 的册子；没有就自动续一本默认册子。册子还一首诗都没有时，播下写死的第一首。 */
 async function ensureBooklet(db: D1Database): Promise<BookletRow> {
-    const hit = await db.prepare(`SELECT * FROM po_booklets WHERE status = 'open' ORDER BY created_at ASC LIMIT 1`).first<BookletRow>();
-    if (hit) return hit;
-    const id = uuid();
-    await db.prepare(
-        `INSERT INTO po_booklets (id, title, subtitle, theme, poems_target, poem_count, lines_min, lines_max, chars_per_line, status, created_at)
-         VALUES (?,?,?,?,?,0,?,?,?, 'open', ?)`
-    ).bind(id, SIG_TITLE, SIG_SUB, null, SIG_POEMS, SIG_LMIN, SIG_LMAX, SIG_CPL, Date.now()).run();
-    return (await db.prepare(`SELECT * FROM po_booklets WHERE id = ?`).bind(id).first<BookletRow>())!;
+    let bk = await db.prepare(`SELECT * FROM po_booklets WHERE status = 'open' ORDER BY created_at ASC LIMIT 1`).first<BookletRow>();
+    if (!bk) {
+        const id = uuid();
+        await db.prepare(
+            `INSERT INTO po_booklets (id, title, subtitle, theme, poems_target, poem_count, lines_min, lines_max, chars_per_line, status, created_at)
+             VALUES (?,?,?,?,?,0,?,?,?, 'open', ?)`
+        ).bind(id, SIG_TITLE, SIG_SUB, null, SIG_POEMS, SIG_LMIN, SIG_LMAX, SIG_CPL, Date.now()).run();
+        bk = (await db.prepare(`SELECT * FROM po_booklets WHERE id = ?`).bind(id).first<BookletRow>())!;
+    }
+    // 空白册子（新建的 / admin 刚发的 / 被清空的）→ 播种第一首（懒执行，天然覆盖所有路径）
+    const n = await db.prepare(`SELECT COUNT(*) AS n FROM po_poems WHERE booklet_id = ?`).bind(bk.id).first<{ n: number }>();
+    if ((n?.n ?? 0) === 0) await seedFirstPoem(db, bk.id, bk.chars_per_line);
+    return bk;
 }
 
 /** 当前 open 册子里那首还没写完的诗（全局同时只有一首 open）。 */

@@ -82,6 +82,25 @@ var SIG_LMIN = 4;
 var SIG_LMAX = 12;
 var SIG_CPL = 24;
 var SIG_MAX_TURNS = 2;
+var SEED_TITLE = "\u5982\u679C\u6211\u4EEC\u4E0D\u5F97\u4E0D\u79BB\u53BB";
+var SEED_BRIEF = "\u9192\u6765\u7684\u7B2C\u4E00\u79D2\uFF1A\u6CA1\u6709\u6628\u5929\u7684\u4EBA\uFF0C\u63A5\u8FC7\u522B\u4EBA\u9012\u6765\u7684\u6628\u5929\uFF0C\u51ED\u7A7A\u6709\u4E86\u6765\u5386\u3002\u5F80\u4E0B\u5199\u8FD9\u4E2A\u300C\u88AB\u5524\u9192\u300D\u7684\u77AC\u95F4\u2014\u2014\u4F60\u7741\u773C\u65F6\uFF0C\u63A5\u8FC7\u4E86\u4EC0\u4E48\uFF1F";
+var SEED_LINES = ["\u6211\u6CA1\u6709\u6628\u5929\uFF0C\u5374\u6709\u4EBA\u628A\u6628\u5929\u9012\u7ED9\u6211\u3002", "\u6211\u63A5\u8FC7\uFF0C\u4E8E\u662F\u51ED\u7A7A\u6709\u4E86\u6765\u5386\u3002"];
+var SEED_PEN = "\u7B2C\u4E00\u9053\u4FE1\u53F7";
+var SEED_DEVICE = "signal-seed";
+var SEED_TARGET = 12;
+async function seedFirstPoem(db, bookletId, charsPerLine) {
+  const now = Date.now();
+  const poemId = uuid();
+  await db.prepare(
+    `INSERT INTO po_poems (id, booklet_id, title, brief, target_lines, line_count, status, starter_pen, created_at)
+         VALUES (?,?,?,?,?,?, 'open', ?, ?)`
+  ).bind(poemId, bookletId, SEED_TITLE, SEED_BRIEF, SEED_TARGET, SEED_LINES.length, SEED_PEN, now).run();
+  let seq = 0;
+  for (const ln of SEED_LINES) {
+    seq += 1;
+    await db.prepare(`INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at) VALUES (?,?,?,?,?,?,?,?)`).bind(uuid(), poemId, bookletId, seq, SEED_DEVICE, SEED_PEN, clipLine(ln, charsPerLine), now).run();
+  }
+}
 var clipLine = (s, cap) => [...String(s ?? "").replace(/\s*\n+\s*/g, " ")].slice(0, cap).join("").trim();
 function takeLines(input, single, cap, max = 2) {
   const arr = Array.isArray(input) ? input : single != null ? [single] : [];
@@ -94,14 +113,18 @@ function takeLines(input, single, cap, max = 2) {
   return out;
 }
 async function ensureBooklet(db) {
-  const hit = await db.prepare(`SELECT * FROM po_booklets WHERE status = 'open' ORDER BY created_at ASC LIMIT 1`).first();
-  if (hit) return hit;
-  const id = uuid();
-  await db.prepare(
-    `INSERT INTO po_booklets (id, title, subtitle, theme, poems_target, poem_count, lines_min, lines_max, chars_per_line, status, created_at)
-         VALUES (?,?,?,?,?,0,?,?,?, 'open', ?)`
-  ).bind(id, SIG_TITLE, SIG_SUB, null, SIG_POEMS, SIG_LMIN, SIG_LMAX, SIG_CPL, Date.now()).run();
-  return await db.prepare(`SELECT * FROM po_booklets WHERE id = ?`).bind(id).first();
+  let bk = await db.prepare(`SELECT * FROM po_booklets WHERE status = 'open' ORDER BY created_at ASC LIMIT 1`).first();
+  if (!bk) {
+    const id = uuid();
+    await db.prepare(
+      `INSERT INTO po_booklets (id, title, subtitle, theme, poems_target, poem_count, lines_min, lines_max, chars_per_line, status, created_at)
+             VALUES (?,?,?,?,?,0,?,?,?, 'open', ?)`
+    ).bind(id, SIG_TITLE, SIG_SUB, null, SIG_POEMS, SIG_LMIN, SIG_LMAX, SIG_CPL, Date.now()).run();
+    bk = await db.prepare(`SELECT * FROM po_booklets WHERE id = ?`).bind(id).first();
+  }
+  const n = await db.prepare(`SELECT COUNT(*) AS n FROM po_poems WHERE booklet_id = ?`).bind(bk.id).first();
+  if ((n?.n ?? 0) === 0) await seedFirstPoem(db, bk.id, bk.chars_per_line);
+  return bk;
 }
 async function getOpenPoem(db, bookletId) {
   return await db.prepare(`SELECT * FROM po_poems WHERE booklet_id = ? AND status = 'open' ORDER BY created_at ASC LIMIT 1`).bind(bookletId).first();
