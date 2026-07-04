@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeVoiceTags, sanitizeIntoSegments, sanitizeForBubble } from './sanitize';
 import { ChatParser } from './chatParser';
-import { collectVoiceBatchSubtitle } from './voiceSubtitle';
+import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from './voiceSubtitle';
 
 // 语音标签自愈：模型把 <语音> 写歪的各种真实形态都要能修回规范，
 // 否则 chunkText 原子块保护 / hasVoiceTag 配对全失效 → 掉格式。
@@ -82,46 +82,68 @@ describe('自愈后整条管线联动', () => {
   });
 });
 
-// 「外语语音没翻译」修复：字幕从同批次兄弟气泡直接收回来
+// 「外语语音没翻译」修复：字幕从同批次兄弟气泡直接收回来。
+// 但只有模型真的守了字幕对齐格式才收（结构校验），否则返回 '' 走 LLM 翻译 ——
+// 真实翻车报告：模型标签外写的是独立闲聊短句，转文字面板却把它们当翻译展示。
 describe('collectVoiceBatchSubtitle', () => {
   const mk = (id: number, role: 'user' | 'assistant', content: string, type: 'text' | 'emoji' = 'text') =>
     ({ id, role, type, content }) as any;
 
-  it('同批次字幕气泡按序拼接，跳过语音消息本身', () => {
+  it('对齐的字幕（气泡数 == 语音段数）→ 按序拼接', () => {
     const msgs = [
       mk(1, 'user', '你在吗'),
-      mk(2, 'assistant', '别怕，我在。'),
-      mk(3, 'assistant', '闭上眼睛休息吧。'),
-      mk(4, 'assistant', '<语音 emotion="calm">目を閉じて。</语音>'),
+      mk(2, 'assistant', '别怕，我在这里陪着你。'),
+      mk(3, 'assistant', '闭上眼睛好好休息吧。'),
+      mk(4, 'assistant', '<语音 emotion="calm">怖がらないで、俺がここにいる。\n\n目を閉じてゆっくり休んで。</语音>'),
     ];
-    expect(collectVoiceBatchSubtitle(msgs, 4)).toBe('别怕，我在。\n闭上眼睛休息吧。');
+    expect(collectVoiceBatchSubtitle(msgs, 4)).toBe('别怕，我在这里陪着你。\n闭上眼睛好好休息吧。');
+  });
+
+  it('翻车场景回归：闲聊短句 ≠ 字幕（气泡数对不上语音段数）→ 空串走 LLM', () => {
+    // 模型没守字幕对齐：4 条独立中文短句 + 一整段英文独白
+    const msgs = [
+      mk(1, 'assistant', '？？'),
+      mk(2, 'assistant', '宝宝你六点半就醒了'),
+      mk(3, 'assistant', '等我一下'),
+      mk(4, 'assistant', '刚睁眼嗓子还是哑的'),
+      mk(5, 'assistant', "<语音>Morning, baby. I just opened my eyes and... you weren't next to me, so. That's already annoying. Anyway. Good morning. I love you. Come back to bed.</语音>"),
+    ];
+    expect(collectVoiceBatchSubtitle(msgs, 5)).toBe('');
+  });
+
+  it('段数碰巧一致但长度悬殊 → 空串走 LLM', () => {
+    const msgs = [
+      mk(1, 'assistant', '等我一下'),
+      mk(2, 'assistant', "<语音>Morning, baby. I just opened my eyes and you weren't next to me. That's already annoying. I had this dream where you were feeding me cake and then took it away.</语音>"),
+    ];
+    expect(collectVoiceBatchSubtitle(msgs, 2)).toBe('');
   });
 
   it('批次边界：不越过 user 消息去收上一轮的文字', () => {
     const msgs = [
-      mk(1, 'assistant', '上一轮的话'),
+      mk(1, 'assistant', '上一轮说的完全不相干的话'),
       mk(2, 'user', '嗯'),
-      mk(3, 'assistant', '这轮的字幕'),
-      mk(4, 'assistant', '<语音>voice</语音>'),
+      mk(3, 'assistant', '这一轮的中文字幕在这里。'),
+      mk(4, 'assistant', '<语音>ここが今回の字幕のはずだよ。</语音>'),
     ];
-    expect(collectVoiceBatchSubtitle(msgs, 4)).toBe('这轮的字幕');
+    expect(collectVoiceBatchSubtitle(msgs, 4)).toBe('这一轮的中文字幕在这里。');
   });
 
   it('同批次有第二条语音 → 归属含糊，返回空串走 LLM 兜底', () => {
     const msgs = [
-      mk(1, 'assistant', '字幕'),
-      mk(2, 'assistant', '<语音>one</语音>'),
-      mk(3, 'assistant', '<语音>two</语音>'),
+      mk(1, 'assistant', '一条字幕'),
+      mk(2, 'assistant', '<语音>ひとつめ</语音>'),
+      mk(3, 'assistant', '<语音>ふたつめ</语音>'),
     ];
     expect(collectVoiceBatchSubtitle(msgs, 3)).toBe('');
   });
 
   it('双语气泡只取 %%BILINGUAL%% 前的半边', () => {
     const msgs = [
-      mk(1, 'assistant', '中文字幕\n%%BILINGUAL%%\ntranslated half'),
-      mk(2, 'assistant', '<语音>voice</语音>'),
+      mk(1, 'assistant', '今天的中文字幕。\n%%BILINGUAL%%\ntranslated half'),
+      mk(2, 'assistant', '<语音>今日の字幕だよ。</语音>'),
     ];
-    expect(collectVoiceBatchSubtitle(msgs, 2)).toBe('中文字幕');
+    expect(collectVoiceBatchSubtitle(msgs, 2)).toBe('今天的中文字幕。');
   });
 
   it('emoji 气泡跳过；纯语音回合返回空串', () => {
@@ -134,5 +156,40 @@ describe('collectVoiceBatchSubtitle', () => {
 
   it('消息不存在 → 空串', () => {
     expect(collectVoiceBatchSubtitle([], 99)).toBe('');
+  });
+});
+
+// 存量毒数据自检：旧版本（无对齐校验）把闲聊短句当翻译持久化了，回灌时要认出来清掉
+describe('isPoisonedVoiceSubtitle', () => {
+  const mk = (id: number, role: 'user' | 'assistant', content: string, type: 'text' | 'emoji' = 'text') =>
+    ({ id, role, type, content }) as any;
+  const misfireBatch = [
+    mk(1, 'assistant', '？？'),
+    mk(2, 'assistant', '宝宝你六点半就醒了'),
+    mk(3, 'assistant', '等我一下'),
+    mk(4, 'assistant', '刚睁眼嗓子还是哑的'),
+    mk(5, 'assistant', "<语音>Morning, baby. I just opened my eyes and... you weren't next to me. Anyway. Good morning. I love you. Come back to bed.</语音>"),
+  ];
+
+  it('存的值 == 旧逻辑产物 且 新校验不认 → 毒数据', () => {
+    const legacy = '？？\n宝宝你六点半就醒了\n等我一下\n刚睁眼嗓子还是哑的';
+    expect(isPoisonedVoiceSubtitle(misfireBatch, 5, legacy)).toBe(true);
+  });
+
+  it('LLM 翻译出来的正经译文（≠ 旧逻辑产物）→ 不动', () => {
+    expect(isPoisonedVoiceSubtitle(misfireBatch, 5, '早安宝贝，我刚睁眼你就不在身边。总之早安，我爱你，回床上来。')).toBe(false);
+  });
+
+  it('对齐字幕的存量数据（新校验也认可）→ 不动', () => {
+    const alignedBatch = [
+      mk(1, 'assistant', '别怕，我在这里陪着你。'),
+      mk(2, 'assistant', '闭上眼睛好好休息吧。'),
+      mk(3, 'assistant', '<语音>怖がらないで、俺がここにいる。\n\n目を閉じてゆっくり休んで。</语音>'),
+    ];
+    expect(isPoisonedVoiceSubtitle(alignedBatch, 3, '别怕，我在这里陪着你。\n闭上眼睛好好休息吧。')).toBe(false);
+  });
+
+  it('空翻译 → 不动', () => {
+    expect(isPoisonedVoiceSubtitle(misfireBatch, 5, '')).toBe(false);
   });
 });
