@@ -177,8 +177,8 @@ const CharCreatorDevApp: React.FC = () => {
                         PSD 整批导入
                     </div>
                     <div className="text-[10px] text-white/45 leading-relaxed">
-                        顶层<b>图层组 = 一个部件</b>，组名写「类目 名称」（如 <code>前发 云朵</code>）。
-                        组里的<b>正片叠底层</b>会自动识别为该部件投出去的阴影（转成黑色+alpha，换色不受影响）；
+                        顶层<b>图层组 = 一个类目</b>（组名写类目，如 <code>眼睛</code> / <code>前发</code>），
+                        <b>组里每个图层 = 一个部件</b>（图层名 = 部件名，如眼睛组里「杏眼」「圆眼」各一层）。
                         名字加 <code>#色</code> / <code>#原色</code> 可强制换色开关，头发类目默认可换色。
                     </div>
                     <input ref={psdRef} type="file" accept=".psd" className="hidden" onChange={e => void onPsdFile(e.target.files?.[0])} />
