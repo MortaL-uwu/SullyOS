@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useOS } from '../context/OSContext';
 import { ArrowLeft, UploadSimple, Trash, Wrench, Warning, FileArrowUp, MoonStars } from '@phosphor-icons/react';
 import { DB } from '../utils/db';
+import { creatorPartToBlobRefs, loadCreatorPartsForRender } from '../utils/creatorPartsBlob';
 import type { CustomCreatorPart } from '../types';
 import type { ParsedPsdPart } from '../utils/psdCreatorImport';
 
@@ -35,7 +36,8 @@ const CharCreatorDevApp: React.FC = () => {
     const [psdParts, setPsdParts] = useState<ParsedPsdPart[]>([]);
     const [psdWarnings, setPsdWarnings] = useState<string[]>([]);
 
-    const load = useCallback(async () => setParts(await DB.getCustomCreatorParts()), []);
+    // 加载：解析成 base64 供 <img> 显示，并把存量 base64 惰性迁移成 Blob 令牌落库。
+    const load = useCallback(async () => setParts(await loadCreatorPartsForRender()), []);
     useEffect(() => { void load(); }, [load]);
 
     const onFile = (f: File | undefined) => {
@@ -56,7 +58,8 @@ const CharCreatorDevApp: React.FC = () => {
             tintable,
             createdAt: Date.now(),
         };
-        await DB.saveCustomCreatorPart(part);
+        // 落库前把 base64 src 转成 Blob 令牌（省配额）
+        await DB.saveCustomCreatorPart(await creatorPartToBlobRefs(part));
         setName(''); setSrc(''); setTintable(false);
         if (fileRef.current) fileRef.current.value = '';
         await load();
@@ -105,7 +108,8 @@ const CharCreatorDevApp: React.FC = () => {
                 shadowSrc: p.shadowSrc,
                 createdAt: Date.now(),
             };
-            await DB.saveCustomCreatorPart(part);
+            // PSD 批量导入：src / shadowSrc 的 base64 落库前转成 Blob 令牌
+            await DB.saveCustomCreatorPart(await creatorPartToBlobRefs(part));
         }
         setPsdParts([]); setPsdWarnings([]);
         await load();

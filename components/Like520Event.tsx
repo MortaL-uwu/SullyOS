@@ -11,6 +11,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
+import { creatorPartToBlobRefs, loadCreatorPartsForRender } from '../utils/creatorPartsBlob';
 import { CharacterProfile, SpecialMomentRecord } from '../types';
 import { safeResponseJson } from '../utils/safeApi';
 import {
@@ -184,7 +185,9 @@ export const CreatorIframe: React.FC<CreatorIframeProps> = ({ mode, charName, pr
         let cancelled = false;
         (async () => {
             try {
-                const parts = await DB.getCustomCreatorParts();
+                // 部件在库里以 Blob 令牌存（省配额），这里解析回 base64 供 iframe 用；
+                // 顺手把存量旧 base64 惰性迁移成令牌。
+                const parts = await loadCreatorPartsForRender();
                 if (cancelled) return;
                 extraItemsRef.current = parts.map(p => ({ categoryKey: p.categoryKey, id: p.id, name: p.name, src: p.src, tintable: !!p.tintable, shadowSrc: p.shadowSrc }));
                 if (readyRef.current) postAddItems();
@@ -211,14 +214,16 @@ export const CreatorIframe: React.FC<CreatorIframeProps> = ({ mode, charName, pr
                     state: e.data.payload.state,
                 });
             } else if (e.data.type === 'like520_save_custom_part' && e.data.payload?.part) {
-                // 捏人器界面内上传的自定义部件 → 落库（IndexedDB），刷新/换 app 都还在
+                // 捏人器界面内上传的自定义部件 → 落库（IndexedDB），刷新/换 app 都还在。
+                // 落库前把 base64 src/shadowSrc 转成 Blob 令牌（省配额）；内存里仍留 base64 喂 iframe。
                 const p = e.data.payload.part;
                 const part = {
                     id: p.id, categoryKey: p.categoryKey, name: p.name,
-                    src: p.src, tintable: !!p.tintable, createdAt: Date.now(),
+                    src: p.src, tintable: !!p.tintable, shadowSrc: p.shadowSrc, createdAt: Date.now(),
                 };
-                DB.saveCustomCreatorPart(part)
-                    .then(() => { extraItemsRef.current = [...extraItemsRef.current, { categoryKey: part.categoryKey, id: part.id, name: part.name, src: part.src, tintable: part.tintable }]; })
+                creatorPartToBlobRefs(part)
+                    .then(stored => DB.saveCustomCreatorPart(stored))
+                    .then(() => { extraItemsRef.current = [...extraItemsRef.current, { categoryKey: p.categoryKey, id: p.id, name: p.name, src: p.src, tintable: !!p.tintable, shadowSrc: p.shadowSrc }]; })
                     .catch(() => { /* 落库失败：内存里仍可用，仅本次会话有效 */ });
             } else if (e.data.type === 'like520_delete_custom_part' && e.data.payload?.id) {
                 const id = e.data.payload.id;

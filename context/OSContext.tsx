@@ -2962,10 +2962,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   continue;
               }
 
-              // 角色的小屋图片（roomConfig.wallImage/floorImage/items[].image、sprites.chibi）
-              // 可能存的是 blobref 令牌。媒体/全量模式下先解析回 data:image，令后面的
-              // data:→zip 抽取（含 media_only 的 roomItems/backgrounds 提取）能认得。
-              if (storeName === 'characters' && mode !== 'text_only' && Array.isArray(rawData)) {
+              // 这些 store 的图片可能存的是 blobref 令牌，媒体/全量模式下先解析回 data:image，
+              // 令后面的 data:→zip 抽取能认得：
+              //  · characters：小屋 roomConfig.wallImage/floorImage/items[].image、sprites.chibi
+              //    （media_only 的 roomItems/backgrounds 提取也依赖已还原成 data:）
+              //  · cc_custom_parts：捏人器自定义部件的 src / shadowSrc
+              if ((storeName === 'characters' || storeName === 'cc_custom_parts') && mode !== 'text_only' && Array.isArray(rawData)) {
                   for (const c of rawData) await resolveBlobRefsDeep(c);
               }
 
