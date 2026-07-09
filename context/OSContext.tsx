@@ -2919,6 +2919,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
               // 梦境盲盒收藏册（账号级 localStorage，不挂在角色上，需单独随备份带走）
               dreamCollection: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('os_dream_collection'); return s ? JSON.parse(s) : undefined; } catch { return undefined; } })() : undefined,
+
+              // 桌面电子宠物主题的主色调偏好（账号级 localStorage）。room_card 涓流卡片本身
+              // 是普通消息、随 messages store 一起导出，这里只补带走这个纯外观偏好。
+              gotchiAccentHue: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('tama_accent_hue'); return s !== null ? s : undefined; } catch { return undefined; } })() : undefined,
           };
 
           // 桌面皮肤偏好（电子宠物/手游风的界面配色 + 看板 banner）——异步（看板图令牌需解析为
@@ -3596,6 +3600,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (typeof data.bm25Mode === 'string') localStorage.setItem('bm25_mode', data.bm25Mode);
           if (typeof data.lastActiveCharId === 'string') localStorage.setItem('os_last_active_char_id', data.lastActiveCharId);
           if (data.dreamCollection && typeof data.dreamCollection === 'object') localStorage.setItem('os_dream_collection', JSON.stringify(data.dreamCollection));
+          if (typeof data.gotchiAccentHue === 'string' && /^\d+$/.test(data.gotchiAccentHue)) localStorage.setItem('tama_accent_hue', data.gotchiAccentHue);
           if (data.eventNotifFlags && typeof data.eventNotifFlags === 'object') {
               for (const [key, val] of Object.entries(data.eventNotifFlags)) {
                   // 只允许 sullyos_ 前缀，避免污染其它键

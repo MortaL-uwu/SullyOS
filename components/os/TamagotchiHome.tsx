@@ -369,7 +369,7 @@ const LiveBoard = React.memo<{
         : 'linear-gradient(100deg, rgba(253,250,246,0.92) 0%, rgba(253,250,246,0.62) 48%, rgba(253,250,246,0.88) 100%)';
     return (
         <div className="absolute inset-x-4 z-[32] rounded-[1.15rem] overflow-hidden h-[4.8rem]"
-            style={{ top: 'calc(var(--safe-top, 0px) + 4.55rem)', border: `1.5px solid ${PAL.frameSoft}`, boxShadow: dark ? '0 6px 16px rgba(0,0,0,0.35)' : '0 6px 16px var(--tg-glow25)' }}>
+            style={{ top: 'calc(var(--chrome-top, var(--safe-top, 0px)) + 4.55rem)', border: `1.5px solid ${PAL.frameSoft}`, boxShadow: dark ? '0 6px 16px rgba(0,0,0,0.35)' : '0 6px 16px var(--tg-glow25)' }}>
             {/* 底：自定义图，或角色头像拉伸铺底（攻略本选人那味儿）；按明暗罩玻璃纱 */}
             {bgImg ? (
                 <TokenImg value={bgImg} className="absolute inset-0 w-full h-full object-cover" draggable={false} loading="lazy" alt="" />
@@ -436,7 +436,7 @@ const LiveBoard = React.memo<{
 
 // ─── 天花板小挂饰：从看板下垂两颗 ✦，轻轻摇（transform-only）────────────
 const CeilingCharms = React.memo(() => (
-    <div className="absolute inset-x-0 z-[28] pointer-events-none" style={{ top: 'calc(var(--safe-top, 0px) + 9.15rem)' }}>
+    <div className="absolute inset-x-0 z-[28] pointer-events-none" style={{ top: 'calc(var(--chrome-top, var(--safe-top, 0px)) + 9.15rem)' }}>
         {[
             { x: '38%', drop: 13, size: 9, color: PAL.gold },
             { x: '60%', drop: 22, size: 8, color: PAL.frame },
@@ -644,7 +644,7 @@ const FullStage = React.memo<{
 // 跟随界面风格（细线半透卡 + 内描边），端端正正不摇晃。
 const HangingSign = React.memo<{ text: string; onTap: () => void }>(({ text, onTap }) => (
     <div className="absolute left-[6%] z-[30] flex flex-col items-center pointer-events-none"
-        style={{ top: 'calc(var(--safe-top, 0px) + 9.15rem)' }}>
+        style={{ top: 'calc(var(--chrome-top, var(--safe-top, 0px)) + 9.15rem)' }}>
         {/* 两根吊绳（挂在顶部横幅正下方，不悬空） */}
         <div className="flex gap-6">
             <span style={{ width: 1.5, height: 24, background: PAL.frameSoft }} />
@@ -671,7 +671,7 @@ const DayScroll = React.memo<{ slots: { time: string; text: string; passed: bool
         <div className="absolute inset-0 z-[85]" onClick={onClose} />
         <div className="absolute left-4 right-[22%] z-[86] rounded-2xl px-4 pt-3 pb-4 animate-pop-in"
             style={{
-                top: 'calc(var(--safe-top, 0px) + 12.6rem)',
+                top: 'calc(var(--chrome-top, var(--safe-top, 0px)) + 12.6rem)',
                 background: PAL.cardHi,
                 border: `1.5px solid ${PAL.frameSoft}`,
                 boxShadow: '0 10px 26px var(--tg-glow35)',
@@ -711,7 +711,7 @@ const WorldPortals = React.memo<{ onHome: () => void; onPixel: () => void; onDre
         { key: 'dream', label: '梦境', en: 'DREAM', icon: ICON.moon, onClick: onDream },
     ];
     return (
-        <div className="absolute right-3 z-[35] flex flex-col items-center" style={{ top: 'calc(var(--safe-top, 0px) + 10rem)' }}>
+        <div className="absolute right-3 z-[35] flex flex-col items-center" style={{ top: 'calc(var(--chrome-top, var(--safe-top, 0px)) + 10rem)' }}>
             {portals.map((p, i) => (
                 <React.Fragment key={p.key}>
                     {i > 0 && (
@@ -1129,7 +1129,7 @@ const TamagotchiHome: React.FC = () => {
             `}</style>
 
             {/* ===== 报头（高级横幅，参考稿）：细线环头像 · 衬线名字 · Lv·时间 · 经验条 · 调色/通话圆钮 ===== */}
-            <div className="absolute top-0 inset-x-0 z-[40] px-3" style={{ paddingTop: 'calc(var(--safe-top, 0px) + 0.7rem)' }}>
+            <div className="absolute top-0 inset-x-0 z-[40] px-3" style={{ paddingTop: 'calc(var(--chrome-top, var(--safe-top, 0px)) + 0.7rem)' }}>
                 {char ? (
                     <div className="relative flex items-center gap-3 rounded-[1.4rem] pl-2 pr-2.5 py-2"
                         style={{ background: PAL.card, border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 5px 16px var(--tg-glow25)' }}>
@@ -1180,7 +1180,7 @@ const TamagotchiHome: React.FC = () => {
                 <>
                     <div className="absolute inset-0 z-[45]" onClick={() => setPaletteOpen(false)} />
                     <div className="absolute right-4 z-50 w-[16.5rem] rounded-2xl p-3.5 animate-pop-in"
-                        style={{ top: 'calc(var(--safe-top, 0px) + 4.6rem)', background: PAL.cardHi, border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 10px 26px var(--tg-glow35)' }}>
+                        style={{ top: 'calc(var(--chrome-top, var(--safe-top, 0px)) + 4.6rem)', background: PAL.cardHi, border: `1.5px solid ${PAL.frameSoft}`, boxShadow: '0 10px 26px var(--tg-glow35)' }}>
                         <div className="absolute inset-[4px] rounded-[0.85rem] pointer-events-none" style={{ border: '1px solid var(--tg-frame-a22)' }} />
                         <div className="flex items-center gap-1.5 mb-2.5">
                             <span className="w-4 h-4" style={{ color: PAL.grape }}>{ICON.palette}</span>
@@ -1342,7 +1342,7 @@ const TamagotchiHome: React.FC = () => {
             {/* ===== 全部应用抽屉（逃生舱口：外观 / 全部 App 都在这） ===== */}
             {drawerOpen && (
                 <div className="absolute inset-0 z-40 flex flex-col animate-fade-in" style={{ background: 'var(--tg-drawer)' }} onClick={() => setDrawerOpen(false)}>
-                    <div className="flex items-center justify-between px-6" style={{ paddingTop: 'calc(var(--safe-top, 0px) + 1.25rem)', paddingBottom: '0.5rem' }}>
+                    <div className="flex items-center justify-between px-6" style={{ paddingTop: 'calc(var(--chrome-top, var(--safe-top, 0px)) + 1.25rem)', paddingBottom: '0.5rem' }}>
                         <h2 className="text-lg tracking-wide" style={{ fontFamily: FONT_CN, color: PAL.ink }}>全部应用</h2>
                         <button onClick={(e) => { e.stopPropagation(); setDrawerOpen(false); }} aria-label="关闭"
                             className="w-9 h-9 rounded-xl flex items-center justify-center active:scale-90 transition-transform"
