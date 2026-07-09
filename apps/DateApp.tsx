@@ -581,18 +581,32 @@ const DateApp: React.FC = () => {
         ];
         return (
             <div className="h-full w-full relative overflow-hidden flex flex-col font-light"
-                 style={{ background: 'linear-gradient(170deg,#241d4a 0%,#352c66 38%,#473b7e 68%,#5b4d94 100%)' }}>
-                {/* 星空装饰层 */}
+                 style={{ background: 'radial-gradient(135% 95% at 50% -20%, #4b357f 0%, #2d2059 38%, #1a1438 70%, #110d26 100%)' }}>
+                {/* 背景氛围层：月光穹顶 + 极光色团 + 星尘 + 暗角 */}
                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                    <div className="absolute -top-24 -right-20 w-72 h-72 rounded-full" style={{ background: 'radial-gradient(circle, rgba(190,170,255,0.25), transparent 70%)' }} />
-                    <div className="absolute top-1/3 -left-16 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(244,180,255,0.14), transparent 70%)' }} />
+                    {/* 顶部月光 */}
+                    <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[130%] h-80"
+                         style={{ background: 'radial-gradient(58% 100% at 50% 0%, rgba(219,205,255,0.30), transparent 72%)' }} />
+                    {/* 极光柔光团 */}
+                    <div className="absolute -top-20 -right-24 w-80 h-80 rounded-full"
+                         style={{ background: 'radial-gradient(circle, rgba(167,139,250,0.38), transparent 66%)', filter: 'blur(22px)' }} />
+                    <div className="absolute top-[22%] -left-24 w-72 h-72 rounded-full"
+                         style={{ background: 'radial-gradient(circle, rgba(244,114,182,0.24), transparent 70%)', filter: 'blur(26px)' }} />
+                    <div className="absolute top-[46%] right-[-10%] w-56 h-56 rounded-full"
+                         style={{ background: 'radial-gradient(circle, rgba(125,211,252,0.16), transparent 72%)', filter: 'blur(28px)' }} />
+                    {/* 底部极光带 */}
+                    <div className="absolute -bottom-16 -left-10 -right-10 h-72"
+                         style={{ background: 'radial-gradient(75% 100% at 28% 100%, rgba(45,212,191,0.22), transparent 70%), radial-gradient(75% 100% at 82% 100%, rgba(129,140,248,0.28), transparent 72%)', filter: 'blur(28px)', mixBlendMode: 'screen' }} />
+                    {/* 星尘 */}
                     {stars.map((st, i) => (
                         <span key={i} className="absolute rounded-full bg-white animate-pulse"
-                              style={{ top: st.top, left: st.left, width: st.s, height: st.s, opacity: 0.5, animationDelay: `${st.d}s`, boxShadow: '0 0 6px rgba(255,255,255,0.8)' }} />
+                              style={{ top: st.top, left: st.left, width: st.s, height: st.s, opacity: 0.55, animationDelay: `${st.d}s`, boxShadow: '0 0 7px rgba(255,255,255,0.9)' }} />
                     ))}
-                    <Sparkle size={16} weight="fill" className="absolute top-[18%] left-[24%] text-violet-200/40" />
-                    <Sparkle size={12} weight="fill" className="absolute top-[55%] right-[16%] text-fuchsia-200/40" />
-                    <Sparkle size={14} weight="fill" className="absolute bottom-[10%] left-[14%] text-cyan-100/30" />
+                    <Sparkle size={16} weight="fill" className="absolute top-[18%] left-[24%] text-violet-200/45" />
+                    <Sparkle size={12} weight="fill" className="absolute top-[55%] right-[16%] text-fuchsia-200/45" />
+                    <Sparkle size={14} weight="fill" className="absolute bottom-[12%] left-[14%] text-cyan-100/35" />
+                    {/* 边缘暗角，压出景深 */}
+                    <div className="absolute inset-0" style={{ background: 'radial-gradient(125% 100% at 50% 38%, transparent 52%, rgba(9,6,22,0.55) 100%)' }} />
                 </div>
 
                 {/* 顶栏 + 标题 */}
