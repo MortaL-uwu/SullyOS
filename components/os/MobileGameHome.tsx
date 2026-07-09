@@ -334,7 +334,7 @@ const MobileGameHome: React.FC = () => {
                     <>
                         <div className="fixed inset-0 z-[60]" onClick={() => setMgPaletteOpen(false)} />
                         <div className="absolute right-0 z-[61] w-[16.5rem] rounded-2xl p-3.5 animate-pop-in"
-                            style={{ top: '2.6rem', background: 'var(--mg-drawer)', border: '1.5px solid var(--mg-card-line)', boxShadow: '0 10px 26px var(--mg-glow20)' }}>
+                            style={{ top: 'calc(var(--safe-top, 0px) + 2.9rem)', background: 'var(--mg-drawer)', border: '1.5px solid var(--mg-card-line)', boxShadow: '0 10px 26px var(--mg-glow20)' }}>
                             <div className="flex items-center gap-1.5 mb-2.5">
                                 <span className="w-4 h-4" style={{ color: PAL.grape }}>{MG_PALETTE_ICON}</span>
                                 <span className="text-[12px] font-bold tracking-wide" style={{ fontFamily: FONT_CN, color: PAL.grape }}>界面配色</span>
