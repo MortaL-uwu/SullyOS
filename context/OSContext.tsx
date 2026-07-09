@@ -2748,7 +2748,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // 家园（同世界观多角色大世界）——世界定义 + 演绎历史。导入端早已支持恢复
               // （worldHomeLocal 本机配置也已随导出带走），但这两个 store 之前漏在清单外，
               // 导致导出的备份不含家园数据。
-              'worlds', 'world_episodes'
+              'worlds', 'world_episodes',
+              // 生活记录（档案 App：生理期/药盒/锻炼 + 药盒计划 + 设置；记账走 bank_transactions）
+              // 导入端 importFullData 已支持恢复，这里必须同步登记，否则备份不含生活记录。
+              'life_records', 'med_plans', 'life_record_settings'
           ];
 
           if (mode === 'full') {
@@ -2978,7 +2981,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
               'room_plates', 'digest_reports',
               'bank_transactions', 'scheduled_messages', 'memory_batches', 'hotnews_snapshots',
-              'character_groups' 
+              'character_groups',
+              'life_records', 'med_plans', 'life_record_settings'
           ]);
 
           // Chunked processObject for large arrays — yields to main thread every 200 items
@@ -3135,6 +3139,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   case 'handbook': backupData.handbooks = processedData; break;
                   case 'trackers': backupData.trackers = processedData; break;
                   case 'tracker_entries': backupData.trackerEntries = processedData; break;
+                  case 'life_records': backupData.lifeRecords = processedData; break;
+                  case 'med_plans': backupData.medPlans = processedData; break;
+                  case 'life_record_settings': backupData.lifeRecordSettings = processedData; break;
                   case 'hotnews_snapshots': backupData.hotNewsSnapshots = processedData; break;
                   case 'memory_nodes': backupData.memoryNodes = processedData; break;
                   // memory_vectors 走二进制旁路（上面已 continue），不在此 switch 落 backupData
