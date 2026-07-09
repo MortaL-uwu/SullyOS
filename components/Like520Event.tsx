@@ -112,7 +112,7 @@ export const isSullyChar = (char: CharacterProfile): boolean => {
 };
 
 export const sullyPresets = (): Record<string, string> => ({
-    skin: 'skin_1',
+    skin: 'skin_01',        // 新画风身体（内置素材包 parts/manifest.json；旧 skin_1 已被折叠）
     fronthair: 'fronthair_99',
     back1: 'back1_99',
     eyes: 'eyes_99',

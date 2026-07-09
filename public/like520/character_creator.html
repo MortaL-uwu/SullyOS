@@ -718,6 +718,9 @@ function mergeExtraItems(items) {
   if (added > 0) {
     if (typeof renderTabs === 'function') renderTabs();
     if (typeof renderPanel === 'function') renderPanel();
+    /* 也重渲角色：若预设/草稿已选中一个「此刻才随内置素材包/自定义部件加载进来」的部件
+       （如 SULLY 预设的 skin_01 在清单晚于 init 到达），立绘要在部件到位后补渲染，否则该部位空着。 */
+    if (typeof renderCharacter === 'function') renderCharacter();
   }
 }
 
