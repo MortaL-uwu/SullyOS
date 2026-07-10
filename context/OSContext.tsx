@@ -18,6 +18,7 @@ import { migrateWorldDaySegs } from '../utils/worldHome/prompts';
 import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { recordApiCall, setApiCallAmbientContext } from '../utils/apiCallLog';
+import { rewriteStaleWorkerUrl } from '../utils/proxyWorker';
 import { INSTALLED_APPS } from '../constants';
 import { normalizeCharacterImpression, normalizeCharacterDefaults } from '../utils/impression';
 import { isScheduleFeatureOn } from '../utils/scheduleGenerator';
@@ -993,7 +994,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         const savedRealtimeConfig = localStorage.getItem('os_realtime_config');
         if (savedRealtimeConfig) {
             try {
-                setRealtimeConfig({ ...defaultRealtimeConfig, ...JSON.parse(savedRealtimeConfig) });
+                const parsed = JSON.parse(savedRealtimeConfig);
+                // 小红书 serverUrl 独立持久化，存量若指向已死的历史 worker 域名则迁到当前实例
+                if (parsed?.xhsMcpConfig?.serverUrl) {
+                    parsed.xhsMcpConfig.serverUrl = rewriteStaleWorkerUrl(parsed.xhsMcpConfig.serverUrl);
+                }
+                setRealtimeConfig({ ...defaultRealtimeConfig, ...parsed });
             } catch (e) {
                 console.error('Failed to load realtime config', e);
             }
