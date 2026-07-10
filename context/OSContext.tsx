@@ -438,7 +438,9 @@ const defaultUserProfile: UserProfile = {
 const sullyV2: CharacterProfile = {
   id: 'preset-sully-v2', // Unique ID to prevent duplication
   name: 'Sully',
-  avatar: 'https://sharkpan.xyz/f/BZ3VSa/head.png',
+  // 本地打包资源（public/sully/head.png），同源加载、不依赖图床/CDN，图床挂了也不受影响。
+  // BASE_URL 前缀兼容 GitHub Pages 的相对 base（见 vite.config.ts）。
+  avatar: `${(import.meta as any).env?.BASE_URL ?? '/'}sully/head.png`,
   description: 'AI助理 / 电波系黑客猫猫',
   
   systemPrompt: `[Role Definition]
@@ -1128,11 +1130,15 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                  const isCorrupted = !currentSprites['normal'] || !currentSprites['chibi'];
                  const needsWallUpdate = existingSully.roomConfig?.wallImage !== sullyV2.roomConfig?.wallImage;
                  const needsSkinSets = !existingSully.dateSkinSets || existingSully.dateSkinSets.length === 0;
+                 // 老用户头像仍是旧图床默认图（不稳定，常拉不到）→ 换成本地打包图；
+                 // 用户自己改过头像的（值不等于旧默认）保持不动。
+                 const OLD_SULLY_AVATAR = 'https://sharkpan.xyz/f/BZ3VSa/head.png';
+                 const needsAvatarUpdate = existingSully.avatar === OLD_SULLY_AVATAR;
                  // 之前误把家园 chibi 替换成了像素小屋的像素立绘 → 还原为原版 sharkpan 立绘
                  const hasMisplacedPixelChibi = typeof currentSprites['chibi'] === 'string'
                      && currentSprites['chibi'].startsWith('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADUAAAA4CAYAAABdeLCu');
 
-                 if (isCorrupted || !existingSully.roomConfig || needsWallUpdate || needsSkinSets || hasMisplacedPixelChibi) {
+                 if (isCorrupted || !existingSully.roomConfig || needsWallUpdate || needsSkinSets || hasMisplacedPixelChibi || needsAvatarUpdate) {
                      const restoredSprites = { ...sullyV2.sprites, ...currentSprites };
 
                      if (!restoredSprites['normal']) restoredSprites['normal'] = sullyV2.sprites!['normal'];
@@ -1162,6 +1168,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
                      const updatedSully = {
                          ...existingSully,
+                         avatar: needsAvatarUpdate ? sullyV2.avatar : existingSully.avatar,
                          sprites: restoredSprites,
                          roomConfig: updatedRoomConfig,
                          dateSkinSets: mergedSkins
