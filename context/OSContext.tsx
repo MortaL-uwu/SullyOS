@@ -2332,7 +2332,21 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     return newChar;
   };
   const updateCharacter = async (id: string, updates: Partial<CharacterProfile> | ((prev: CharacterProfile) => Partial<CharacterProfile>)) => { setCharacters(prev => { const updated = prev.map(c => c.id === id ? normalizeCharacterImpression({ ...c, ...(typeof updates === 'function' ? updates(c) : updates) }) : c); const target = updated.find(c => c.id === id); if (target) DB.saveCharacter(target); return updated; }); };
-  const deleteCharacter = async (id: string) => { setCharacters(prev => { const remaining = prev.filter(c => c.id !== id); if (remaining.length > 0 && activeCharacterId === id) { setActiveCharacterId(remaining[0].id); } return remaining; }); await DB.deleteCharacter(id); };
+  const deleteCharacter = async (id: string) => {
+    setCharacters(prev => { const remaining = prev.filter(c => c.id !== id); if (remaining.length > 0 && activeCharacterId === id) { setActiveCharacterId(remaining[0].id); } return remaining; });
+    await DB.deleteCharacter(id);
+    // 表情分类不随角色级联删除会留下「幽灵专属包」：单聊面板被可见性过滤掉（删不掉），
+    // 群聊面板/提示词却还能看到。删完角色顺手按剩余角色清一次残留（详见 DB.cleanupEmojiResidue）。
+    try {
+        const remainingIds = characters.filter(c => c.id !== id).map(c => c.id);
+        const report = await DB.cleanupEmojiResidue(remainingIds);
+        if (report.removedCategories.length > 0) {
+            addToast(`已连带清理 ta 的专属表情分类：${report.removedCategories.map(c => `「${c.name}」`).join('')}`, 'info');
+        }
+    } catch (err) {
+        console.warn('[deleteCharacter] 表情包残留清理失败（不影响角色删除）', err);
+    }
+  };
 
   // 角色分组方法（神经链接"文件夹"）
   const createCharacterGroup = async (name: string): Promise<CharacterGroup | null> => {

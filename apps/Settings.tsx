@@ -24,6 +24,7 @@ import VersionInfo from '../components/settings/VersionInfo';
 import { isPushVapidReady } from '../utils/pushVapid';
 import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import type { CsyMigrationReport } from '../utils/csyMigration';
+import { DB } from '../utils/db';
 
 // hot_news（orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -524,6 +525,36 @@ const Settings: React.FC = () => {
     } finally {
         setIsLoadingModels(false);
     }
+  };
+
+  // 一键清理「幽灵表情包」残留：先 dryRun 扫描，弹确认后才真正删。
+  // 残留的来历：旧版本删角色不会级联清理表情分类，只对已删角色可见的专属分类
+  // 会卡在数据库里——单聊面板看不到（也删不掉），群聊面板却能看到。
+  const [isCleaningResidue, setIsCleaningResidue] = useState(false);
+  const handleCleanupResidue = async () => {
+      if (isCleaningResidue) return;
+      setIsCleaningResidue(true);
+      try {
+          const validIds = (await DB.getAllCharacters()).map(c => c.id);
+          const scan = await DB.cleanupEmojiResidue(validIds, { dryRun: true });
+          if (scan.removedCategories.length === 0 && scan.fixedCategories.length === 0 && scan.removedEmojiCount === 0) {
+              addToast('很干净，没有发现表情包残留 ✨', 'success');
+              return;
+          }
+          const lines = [
+              scan.removedCategories.length > 0 ? `• 删除 ${scan.removedCategories.length} 个失效专属分类：${scan.removedCategories.map(c => `「${c.name}」`).join('、')}` : '',
+              scan.removedEmojiCount > 0 ? `• 删除 ${scan.removedEmojiCount} 个随分类失效/无主的表情` : '',
+              scan.fixedCategories.length > 0 ? `• 修复 ${scan.fixedCategories.length} 个分类里指向已删角色的绑定：${scan.fixedCategories.map(c => `「${c.name}」`).join('、')}` : '',
+          ].filter(Boolean).join('\n');
+          if (!window.confirm(`扫描到以下残留（角色已删除但表情包还在）：\n\n${lines}\n\n点「确定」清理，此操作不可撤销。`)) return;
+          const report = await DB.cleanupEmojiResidue(validIds);
+          addToast(`清理完成：删除 ${report.removedCategories.length} 个分类、${report.removedEmojiCount} 个表情${report.fixedCategories.length > 0 ? `，修复 ${report.fixedCategories.length} 处绑定` : ''}`, 'success');
+      } catch (err) {
+          console.error('[Settings] 表情包残留清理失败', err);
+          addToast('清理失败，请重试', 'error');
+      } finally {
+          setIsCleaningResidue(false);
+      }
   };
 
   const handleExport = async (mode: 'text_only' | 'media_only' | 'full') => {
@@ -1065,6 +1096,13 @@ const Settings: React.FC = () => {
                 • 兼容旧版 JSON 备份文件的导入。
             </p>
             
+            <button onClick={handleCleanupResidue} disabled={isCleaningResidue} className="w-full py-3 mb-2 bg-amber-50 border border-amber-100 text-amber-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50">
+                {isCleaningResidue ? '正在扫描…' : '一键清理表情包残留'}
+            </button>
+            <p className="text-[10px] text-slate-400 px-1 mb-4 leading-relaxed">
+                清理已删除角色遗留的「幽灵表情包」：专属分类的角色没了之后，单聊表情面板看不到它、群聊面板却还冒出来。先扫描列出结果，确认后才会删除。
+            </p>
+
             <button onClick={() => setShowResetConfirm(true)} className="w-full py-3 bg-red-50 border border-red-100 text-red-500 rounded-xl text-xs font-bold flex items-center justify-center gap-2">
                 格式化系统 (出厂设置)
             </button>
