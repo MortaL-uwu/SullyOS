@@ -2920,7 +2920,10 @@ export interface GameLog {
         result: number;
         max: number;
         check?: string;
+        // tier/success 均由代码机械计算（不再由 AI 判断），仅在这次骰点被采纳为正式检定时才有
+        tier?: 'critical_success' | 'success' | 'partial' | 'failure' | 'critical_failure';
         success?: boolean;
+        outcome?: string; // 五档结果的中文标签（如"大成功"），供 UI 展示/tooltip
     };
     // 自动总结后，被归档折叠的日志会标记为 archived（不删除，UI 灰显折叠）
     archived?: boolean;
@@ -2933,6 +2936,15 @@ export interface GameSummary {
     logCount: number;      // 本段总结覆盖了多少条日志
     logIds?: string[];     // 本段总结覆盖的日志 id（用于把原文与总结对应展示）
     createdAt: number;
+}
+
+// 单个角色（或玩家本人）在某一场剧本下的属性/技能数值表。
+// characteristics/skills 的 key 对应 utils/trpgRuleSystems.ts 里 RuleSystemDef.characteristics/skills 的 key。
+export interface CharacterSheetEntry {
+    name: string;                       // 展示用名字（玩家本人 = userProfile.name）
+    characteristics: Record<string, number>; // 如 { STR: 55, DEX: 70, ... }
+    skills: Record<string, number>;      // 如 { spot_hidden: 45, stealth: 60, ... }（CoC 为百分比；DnD 为技能加值，含熟练与属性调整值）
+    note?: string;                       // LLM 生成时附带的一句简短理由（如"体弱多病，力量偏低"），展示用
 }
 
 export interface GameSession {
@@ -2954,6 +2966,16 @@ export interface GameSession {
     // 归档模式：'auto' 满20条自动总结并送进角色 chatapp；'manual' 自动总结但不送，仅手动归档时送。
     // 旧存档无此字段，按 'manual' 处理（不污染旧角色的聊天上下文）。
     archiveMode?: 'auto' | 'manual';
+    // 规则系统：'freeform'（自由叙事，默认，兼容旧存档）| 'coc7' | 'dnd5e'
+    ruleSystem?: 'freeform' | 'coc7' | 'dnd5e';
+    // 自定义骰子机制（仅 freeform 可配，coc7/dnd5e 使用各自固定机制）
+    diceConfig?: { count: number; sides: number; successMode: 'high-good' | 'low-good'; label: string };
+    // 三种规则系统均可选启用：按本场剧本单独生成的逐角色属性/技能数值表，key 为 charId（玩家本人用 '__player__'）。
+    // 由 LLM 参考角色设定+长期记忆生成，故每场剧本都会不同；用户可在创建页手动微调。
+    characterSheets?: Record<string, CharacterSheetEntry>;
+    // 自由叙事专属：AI 按本场世界观原创的"特殊技能"定义（基础技能是固定通用列表，见 utils/trpgRuleSystems.ts FREEFORM_BASIC_SKILLS）。
+    // 与 characterSheets 配套使用，用于渲染技能名 + 喂给 GM prompt。
+    freeformSpecialSkills?: Array<{ key: string; label: string }>;
     suggestedActions?: GameActionOption[];
     summaries?: GameSummary[];   // 自动总结归档的前情提要
     createdAt: number;
