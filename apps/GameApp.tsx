@@ -2394,7 +2394,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                         {charInfo.name}
                                         {log.diceRoll && (
                                             <span className={`px-1.5 rounded font-mono ${diceTierBadgeClass(log.diceRoll)}`}>
-                                                <DiceFive size={10} weight="fill" className="inline" /> {log.diceRoll.result}{log.diceRoll.check ? ` ${log.diceRoll.check}` : ''}{log.diceRoll.tier ? `·${CHECK_TIER_LABELS[log.diceRoll.tier]}` : '·未采纳'}
+                                                <DiceFive size={10} weight="fill" className="inline" /> {log.diceRoll.result}{log.diceRoll.check ? ` ${log.diceRoll.check}` : ''}
                                             </span>
                                         )}
                                     </span>
@@ -2416,7 +2416,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                     <span className={`text-[10px] font-bold opacity-60`}>{log.speakerName}</span>
                                     {log.diceRoll && (
                                         <span className={`text-[10px] px-1.5 rounded font-mono ${diceTierBadgeClass(log.diceRoll)}`}>
-                                            <DiceFive size={12} weight="fill" className="inline" /> {log.diceRoll.result}{log.diceRoll.check ? ` ${log.diceRoll.check}` : ''}{log.diceRoll.tier ? `·${CHECK_TIER_LABELS[log.diceRoll.tier]}` : '·未采纳'}
+                                            <DiceFive size={12} weight="fill" className="inline" /> {log.diceRoll.result}{log.diceRoll.check ? ` ${log.diceRoll.check}` : ''}
                                         </span>
                                     )}
                                 </div>
