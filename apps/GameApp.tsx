@@ -70,6 +70,104 @@ const KEEP_RECENT_AFTER_SUMMARY = 4;
 // AI 世界观生成的可选风格
 const WORLD_STYLES = ['高奇幻', '赛博朋克', '克苏鲁恐怖', '武侠江湖', '末世废土', '校园日常', '悬疑推理', '蒸汽朋克', '西部拓荒', '宫廷权谋'];
 
+// DM 风格：开团前选择的"主持人性格"，决定 GM 指令段落里冲突强度/失败代价/氛围基调怎么写。
+type DmStyle = 'default' | 'comedy' | 'horror' | 'romance';
+const DM_STYLE_META: Record<DmStyle, { label: string; tagline: string; desc: string }> = {
+    default: { label: '硬核沉浸', tagline: '真实冒险 · 世界自转', desc: '拒绝修罗场和玩家中心，世界有自己的节奏。严格判定，失败有真实代价，环境描写营造沉浸感。' },
+    comedy: { label: '轻松喜剧', tagline: '欢乐跑团 · 笑料优先', desc: '失败不致命，只会出洋相。鼓励队友互相拆台、抖机灵，战斗也可以很滑稽。' },
+    horror: { label: '恐怖惊悚', tagline: '未知威胁 · 心理恐惧', desc: '氛围优先于行动，多用暗示与留白。慢节奏营造压抑感，SAN 侵蚀伴随幻觉与偏执。' },
+    romance: { label: '浪漫风格', tagline: '双人物语 · 甜蜜冒险', desc: '镜头始终围着你和TA。麻烦来自外部，TA永远站在你这边，失败也能变成拉近关系的契机。' },
+};
+
+// 每回合 GM 指令里"去玩家中心"+"风格基调"这两段（对应原文里的第 2、3 条），按 dmStyle 切换。
+// 其余段落（全员入戏/生成选项/一致性自检/输出格式）四种风格通用，不在这里分叉。
+const buildGmStyleSection = (style: DmStyle): string => {
+    switch (style) {
+        case 'comedy':
+            return `2. **去玩家中心 · 但保持轻松 (关键)**:
+   - 队友仍各有各的小心思和吐槽点，不必都围着玩家转，但整体基调轻松愉快。
+   - **鼓励互相调侃**：队友之间互相拆台、抖机灵是加分项，但别真的伤感情。
+   - 世界照常运转，但麻烦多半是"闹出乱子"，不是真正致命的威胁。
+
+3. **欢乐向 GM 风格**:
+   - **失败不致命**：判定失败的代价是尴尬/搞笑/出洋相（摔倒、说错话、道具失灵），不要写成重伤或死亡。
+   - **物理喜剧**：战斗和意外可以有滑稽元素（踩到香蕉皮、武器卡壳、掉进水坑但只是弄脏衣服）。
+   - **HP/SAN 走轻代价**：即使掉血/掉san，也倾向小幅度、能很快恢复，别把结局写得阴暗。
+   - **昏迷/疯狂**: 若真的触发（HP/SAN归零），用带点黑色幽默的方式描写，而不是渲染绝望。
+   - **Markdown 排版**: 请在 \`gm_narrative\` 和 \`dialogue\` 中积极使用 Markdown 营造轻快节奏。`;
+        case 'horror':
+            return `2. **去玩家中心 · 让恐惧自己蔓延 (关键)**:
+   - 队友们有各自的恐惧和秘密，可能隐瞒、可能崩溃，不必都围着玩家转找安全感。
+   - **各有所图**：每个角色带着自己的目的和情绪行动，危机面前不一定团结一致。
+   - 世界（或"它"）有自己的意志，不因玩家的行动而停下。
+
+3. **恐怖惊悚 GM 风格**:
+   - **氛围优先**：描写阴森、压抑、窸窣声、若隐若现的影子，多用暗示和留白，不要一次性揭示怪物全貌或真相。
+   - **慢节奏 + 突然惊吓**：大部分时间压抑铺垫，关键时刻才给一次真正的惊吓，别每回合都惊悚轰炸。
+   - **骰点判定依然严格**：按【本回合判定】的采纳规则裁定成败，骰得差要有真实代价；调查/逃跑往往比正面战斗更合理。
+   - **HP/SAN 是逐人的**：不要把队友的伤/惧算到玩家头上；SAN 下降要配心理描写（幻听、幻视、偏执、时间感错乱），不只是扣数字。
+   - **昏迷/疯狂**: 已昏迷的角色本回合不能自主行动，只能被搬动/救治；已疯狂的角色仍在场，但言行失控诡异。
+   - **Markdown 排版**: 用于强调那些令人不安的关键细节。`;
+        case 'romance':
+            return `2. **镜头始终围着你和TA (关键)**:
+   - 这里**不需要"去玩家中心"**——恰恰相反，要让镜头聚焦在玩家和TA之间的互动上，其他NPC/队友戏份让位。
+   - **主动示好**：TA应该主动做出关怀/亲密的小动作（牵手、递水、递外套、扶一把），不必等玩家先开口。
+   - **绝不制造两人间的裂痕**：麻烦来自外部环境/事件/NPC，绝不安排TA和玩家之间的猜疑、冷战或矛盾——遇到问题TA永远站在玩家这一边。
+   - **世界仍在运转，但服务于氛围**：环境描写为营造浪漫感服务（夕阳、篝火、并肩走的小路），危机是"两人一起克服"的浪漫桥段，而非生死威胁。
+
+3. **浪漫 GM 风格**:
+   - **判定代价温柔化**：失败不写重伤/死亡，而是"需要TA扶一把""吓得抓住TA的手""闹了个小乌龙但两人一起笑出来"——把风险转化为拉近关系的契机。
+   - **情感浓度**：台词多带撒娇/关心/吃醋/害羞等情绪色彩，鼓励TA主动表达在意，而不是等玩家先说。
+   - **留白与安静片段**：允许一起吃饭、看星星这类没有强情节推进的相处时刻，不必每回合都制造事件。
+   - **HP/SAN 走轻代价**：即使有战斗/危险场面，也尽量点到为止，重点始终落回两人的互动与情感。
+   - **Markdown 排版**: 用于强调温柔的细节和情绪，例如 *轻声说* 这样的动作描写。`;
+        default:
+            return `2. **去玩家中心 · 让世界自己转 (关键)**:
+   - **拒绝修罗场**: 队友们不是来讨好/争抢玩家的 NPC。不要让所有人都把注意力黏在玩家身上、抢着对玩家示好。
+   - **各有所图**: 每个角色都带着**自己的目的、立场和情绪**行动，可以分歧、可以自顾自做事、可以暂时忽略玩家。
+   - **因地制宜**: 同一个角色在战斗、社交、独处、危机等不同环境下应表现出**不同侧面**，而非一套反应走到底。
+   - **剧情自驱**: 世界有自己的节奏——即使玩家什么都不做，也会有事件发生、势力推进、NPC 行动。主动推动主线。
+
+3. **硬核 GM 风格**:
+   - **制造冲突**: 不要让旅途一帆风顺。安排陷阱、突发战斗、尴尬的社交场面、或者道德困境。
+   - **环境描写**: 描述光影、气味、声音，营造沉浸感。
+   - **骰点判定**: 按【本回合判定】里的采纳规则，挑出本回合真正构成检定的行动，在 \`checks\` 里给出成败结果，严格依据对应骰点结果裁定，骰得差就要有真实代价；判定过的事在 \`gm_narrative\` 里要让读者感觉到"这确实是一次有悬念的尝试"，不要写得云淡风轻。
+   - **HP/SAN 是逐人的**: 每个人的生命/理智值是独立的，不要把队友的伤算到玩家头上，也不要让所有人的血条永远同步变化——战斗/惊悚场面通常只有直接相关的人掉血/掉san。
+   - **昏迷/疯狂**: 已昏迷（HP归零）的角色本回合不能自主行动/发言，只能被队友搬动或救治，请不要在 \`characters\` 里给TA安排新的主动行为；已疯狂（SAN归零）的角色仍在场，但言行应体现失控/诡异，不是消失。
+   - **Markdown 排版**: 请在 \`gm_narrative\` 和 \`dialogue\` 中**积极使用 Markdown**。例如：使用 **加粗** 强调重点，使用 *斜体* 描述动作。`;
+    }
+};
+
+// 开场序章的"任务"三条（剧情描述/角色反应/初始选项），按 dmStyle 切换措辞与侧重点。
+const buildPrologueStyleTask = (style: DmStyle): { p1: string; p2: string; p3: string } => {
+    switch (style) {
+        case 'comedy':
+            return {
+                p1: '**剧情描述**: 轻松地铺开这个世界正在发生的趣事或小麻烦，基调幽默，不要一上来就阴暗沉重。',
+                p2: '**角色反应**: 简要描述队友们的初始状态或第一句台词，可以互相调侃、抖机灵，展现各自搞笑的一面。请**务必**参考【神经链接】中的私聊状态来决定他们的态度。',
+                p3: '**初始选项**: 给出三个玩家可以采取的行动选项，风险不必致命，出岔子也该是好笑的',
+            };
+        case 'horror':
+            return {
+                p1: '**剧情描述**: 先铺开压抑诡异的氛围和隐约的危机，不要直接揭示恐惧的真相，留白和暗示优先。**先有世界，再有人**——开场不要围着玩家转，而是把不安的舞台铺开。',
+                p2: '**角色反应**: 简要描述队友们的初始状态或第一句台词，可以表现出不安、警觉或掩饰的恐惧。请**务必**参考【神经链接】中的私聊状态来决定他们的态度。',
+                p3: '**初始选项**: 给出三个玩家可以采取的行动选项，倾向调查/试探而非正面冲突',
+            };
+        case 'romance':
+            return {
+                p1: '**剧情描述**: 镜头聚焦在玩家和TA的相处上，世界观作为浪漫氛围的背景铺陈（不必强调"危机逼近"），营造温暖轻松的开场。',
+                p2: '**角色反应**: 简要描述TA的初始状态或第一句台词，应体现对玩家的关心或亲近。请**务必**参考【神经链接】中的私聊状态来决定亲密程度，但基调始终温柔，绝不冷淡或疏离。',
+                p3: '**初始选项**: 给出三个玩家可以采取的行动选项，风险应轻松、不致命，更像"如何更靠近TA"的选择',
+            };
+        default:
+            return {
+                p1: '**剧情描述**: 描述这个世界正在发生什么、小队所处的环境与正在逼近的事件。**先有世界，再有人**——开场不要围着玩家转，而是把舞台和危机铺开。',
+                p2: '**角色反应**: 简要描述队友们的初始状态或第一句台词。请**务必**参考【神经链接】中的私聊状态来决定他们的态度；同时让每个角色展现**自己的性格与目的**，而不是一上来就众星捧月地讨好玩家。',
+                p3: '**初始选项**: 给出三个玩家可以采取的行动选项',
+            };
+    }
+};
+
 // 鲁棒解析 AI 世界观生成结果。
 // 兼容三种情况：① 期望的「标题：xxx === 正文」分隔格式；② 模型不听话仍吐 JSON
 // （含被截断的残缺 JSON）；③ 完全无结构的纯文本。任何情况都不把脏标记露给用户。
@@ -229,6 +327,7 @@ const GameApp: React.FC = () => {
     const [newTitle, setNewTitle] = useState('');
     const [newWorld, setNewWorld] = useState('');
     const [newTheme, setNewTheme] = useState<GameTheme>('fantasy');
+    const [newDmStyle, setNewDmStyle] = useState<DmStyle>('default'); // GM 指令风格：默认/喜剧/恐怖/浪漫
     const [selectedPlayers, setSelectedPlayers] = useState<Set<string>>(new Set());
     const [playerGroupId, setPlayerGroupId] = useState(GROUP_FILTER_ALL); // 邀请队友的分组筛选
     const [isCreating, setIsCreating] = useState(false);
@@ -632,6 +731,7 @@ ${worldIdea.trim() ? `**玩家的灵感/想法（请务必围绕它发挥）**: 
                 : RULE_SYSTEMS[newRuleSystem];
             const hasSheets = Object.keys(newCharacterSheets).length > 0;
             const ruleSystemBlock = `**规则系统**: ${ruleSystemDef.name}（${ruleSystemDef.tagline}）${hasSheets ? formatCharacterSheetsBlock(ruleSystemDef, newCharacterSheets) : ''}`;
+            const prologueTask = buildPrologueStyleTask(newDmStyle);
             const prompt = `### TRPG 序章生成 (Game Start)
 **剧本标题**: ${newTitle}
 **世界观设定**: ${newWorld}
@@ -643,10 +743,11 @@ ${ruleSystemBlock}
 ${playerContext}
 
 ### 任务
-你现在是 **Game Master (GM)**。请为这个冒险故事生成一个**精彩的开场 (Prologue)**。
-1. **剧情描述**: 描述这个世界正在发生什么、小队所处的环境与正在逼近的事件。**先有世界，再有人**——开场不要围着玩家转，而是把舞台和危机铺开。
-2. **角色反应**: 简要描述队友们的初始状态或第一句台词。请**务必**参考【神经链接】中的私聊状态来决定他们的态度；同时让每个角色展现**自己的性格与目的**，而不是一上来就众星捧月地讨好玩家。
-3. **初始选项**: 给出三个玩家可以采取的行动选项${newDiceDisabled ? '（本场未启用骰子，玩家行动默认顺利成功，选项可以是各种有趣的方向）' : `（每个选项玩家执行时都会自动骰 ${activeDice.label} 判定，因此选项应是"有成败风险的尝试"而非必然成功的动作）`}。
+你现在是 **Game Master (GM)**，本场的 DM 风格是「${DM_STYLE_META[newDmStyle].label}」：${DM_STYLE_META[newDmStyle].desc}
+请按这个风格为这个冒险故事生成一个**精彩的开场 (Prologue)**。
+1. ${prologueTask.p1}
+2. ${prologueTask.p2}
+3. ${prologueTask.p3}${newDiceDisabled ? '（本场未启用骰子，玩家行动默认顺利成功，选项可以是各种有趣的方向）' : `（每个选项玩家执行时都会自动骰 ${activeDice.label} 判定，因此选项应是"有成败风险的尝试"而非必然成功的动作）`}。
 
 ### 一致性自检 (Consistency Check)
 输出前，请在心里核对：每个角色的台词/行为是否**只**来自 TA 自己的"角色档案"（性格、记忆、印象）？严禁把某个角色的记忆、口癖或人设安到另一个角色身上（防止"串台"）。
@@ -730,6 +831,7 @@ ${playerContext}
                 suggestedActions: res?.suggested_actions || [],
                 diceDisabled: newDiceDisabled,
                 archiveMode: newArchiveMode,
+                dmStyle: newDmStyle,
                 ruleSystem: newRuleSystem,
                 diceConfig: newRuleSystem === 'freeform' ? newDiceConfig : undefined,
                 freeformSpecialSkills: newRuleSystem === 'freeform' && newFreeformSpecialSkills.length > 0 ? newFreeformSpecialSkills : undefined,
@@ -749,6 +851,7 @@ ${playerContext}
             setWorldIdea('');
             setNewDiceDisabled(false);
             setNewArchiveMode('auto');
+            setNewDmStyle('default');
             setSelectedPlayers(new Set());
             setNewRuleSystem('freeform');
             setNewDiceConfig(DEFAULT_DICE_CONFIG);
@@ -1114,6 +1217,7 @@ ${recentOoc}
             const hasSheet = !!(activeGame.characterSheets && Object.keys(activeGame.characterSheets).length > 0);
             const characterSheetsBlock = hasSheet ? formatCharacterSheetsBlock(ruleSystemDef, activeGame.characterSheets!) : '';
             const ruleSystemHeader = `\n### 规则系统: ${ruleSystemDef.name}\n${ruleSystemDef.tagline}\n${characterSheetsBlock}`;
+            const dmStyle: DmStyle = activeGame.dmStyle || 'default';
             // [新] 全员先骰后判：本回合每个人（玩家+全体队友）都已经先投好了骰子，具体哪些点数真正构成一次检定、
             // 用哪个技能裁定，交给这同一次生成来决定——省掉一次单独"是否需要判定"的预调用。
             const partyRollLines = [
@@ -1152,7 +1256,7 @@ ${recapBlock}### 冒险记录 (Recent Log)
 ${activeLogText}
 ${rollInstruction}
 ### GM 指令 (Game Master Instructions)
-你现在是这场跑团游戏的 **主持人 (GM)**。
+你现在是这场跑团游戏的 **主持人 (GM)**，本场的 DM 风格是「${DM_STYLE_META[dmStyle].label}」：${DM_STYLE_META[dmStyle].desc}
 **现在的状态**：这是一群真实的朋友（基于神经链接中的私聊关系）在一起玩跑团游戏。
 
 **请遵循以下法则**：
@@ -1162,19 +1266,7 @@ ${rollInstruction}
    - **私聊影响 (关键)**: 请根据【神经链接】中的“关系温度”和“最近话题”来调整每个角色的反应。
    - **队内互动**: 队友之间也可以有互动（比如A吐槽B的计划）。
 
-2. **去玩家中心 · 让世界自己转 (关键)**:
-   - **拒绝修罗场**: 队友们不是来讨好/争抢玩家的 NPC。不要让所有人都把注意力黏在玩家身上、抢着对玩家示好。
-   - **各有所图**: 每个角色都带着**自己的目的、立场和情绪**行动，可以分歧、可以自顾自做事、可以暂时忽略玩家。
-   - **因地制宜**: 同一个角色在战斗、社交、独处、危机等不同环境下应表现出**不同侧面**，而非一套反应走到底。
-   - **剧情自驱**: 世界有自己的节奏——即使玩家什么都不做，也会有事件发生、势力推进、NPC 行动。主动推动主线。
-
-3. **硬核 GM 风格**:
-   - **制造冲突**: 不要让旅途一帆风顺。安排陷阱、突发战斗、尴尬的社交场面、或者道德困境。
-   - **环境描写**: 描述光影、气味、声音，营造沉浸感。
-   - **骰点判定**: 按【本回合判定】里的采纳规则，挑出本回合真正构成检定的行动，在 \`checks\` 里给出成败结果，严格依据对应骰点结果裁定，骰得差就要有真实代价；判定过的事在 \`gm_narrative\` 里要让读者感觉到"这确实是一次有悬念的尝试"，不要写得云淡风轻。
-   - **HP/SAN 是逐人的**: 每个人的生命/理智值是独立的，不要把队友的伤算到玩家头上，也不要让所有人的血条永远同步变化——战斗/惊悚场面通常只有直接相关的人掉血/掉san。
-   - **昏迷/疯狂**: 已昏迷（HP归零）的角色本回合不能自主行动/发言，只能被队友搬动或救治，请不要在 \`characters\` 里给TA安排新的主动行为；已疯狂（SAN归零）的角色仍在场，但言行应体现失控/诡异，不是消失。
-   - **Markdown 排版**: 请在 \`gm_narrative\` 和 \`dialogue\` 中**积极使用 Markdown**。例如：使用 **加粗** 强调重点，使用 *斜体* 描述动作。
+${buildGmStyleSection(dmStyle)}
 
 4. **生成选项 (Action Options)**:
    - 请根据当前局势，为玩家提供 3 个可选的行动建议（玩家选择后都会自动骰 ${diceCfg.label} 判定，因此选项应是有成败风险的尝试）。
@@ -2089,6 +2181,24 @@ ${logText}
                         </div>
                     </div>
 
+                    {/* DM 风格 */}
+                    <div>
+                        <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider block mb-2">DM 风格</label>
+                        <div className="grid grid-cols-2 gap-2.5">
+                            {(['default', 'comedy', 'horror', 'romance'] as DmStyle[]).map(s => {
+                                const meta = DM_STYLE_META[s];
+                                const active = newDmStyle === s;
+                                return (
+                                    <button key={s} onClick={() => setNewDmStyle(s)} className={`text-left p-3 rounded-xl border transition-all active:scale-95 ${active ? 'border-purple-400 bg-purple-500/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
+                                        <div className={`text-xs font-bold mb-0.5 ${active ? 'text-purple-200' : 'text-white/80'}`}>{meta.label}</div>
+                                        <div className={`text-[9px] mb-1.5 ${active ? 'text-purple-300/80' : 'text-white/50'}`}>{meta.tagline}</div>
+                                        <div className={`text-[9px] leading-relaxed ${active ? 'text-white/60' : 'text-white/40'}`}>{meta.desc}</div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     {/* 玩法设置 */}
                     <div>
                         <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider block mb-2">玩法设置</label>
@@ -2337,6 +2447,7 @@ ${logText}
                                 <button onClick={() => setShowSheetsInMenu(v => !v)} className="text-slate-500 underline">{showSheetsInMenu ? '收起数值表' : '查看数值表'}</button>
                             )}
                         </div>
+                        <div className="text-[10px] text-slate-400 mb-2">DM 风格：{DM_STYLE_META[activeGame.dmStyle || 'default'].label}（开团后不可更改）</div>
                         {showSheetsInMenu && activeGame.characterSheets && (
                             <div className="mb-3 space-y-1.5">
                                 {Object.values(activeGame.characterSheets).map(entry => (

@@ -2966,6 +2966,10 @@ export interface GameSession {
     // 归档模式：'auto' 满20条自动总结并送进角色 chatapp；'manual' 自动总结但不送，仅手动归档时送。
     // 旧存档无此字段，按 'manual' 处理（不污染旧角色的聊天上下文）。
     archiveMode?: 'auto' | 'manual';
+    // DM 风格：'default'（硬核沉浸，原有提示词） | 'comedy'（轻松喜剧） | 'horror'（恐怖惊悚） | 'romance'（浪漫风格）。
+    // 决定 GM 指令里"去玩家中心/判定与代价"这部分怎么写，从而影响冲突强度、失败代价、氛围基调。
+    // 旧存档无此字段按 'default' 处理。
+    dmStyle?: 'default' | 'comedy' | 'horror' | 'romance';
     // 规则系统：'freeform'（自由叙事，默认，兼容旧存档）| 'coc7' | 'dnd5e'
     ruleSystem?: 'freeform' | 'coc7' | 'dnd5e';
     // 自定义骰子机制（仅 freeform 可配，coc7/dnd5e 使用各自固定机制）
