@@ -6,6 +6,7 @@ import { GameSession, GameTheme, CharacterProfile, GameLog, GameActionOption, Ga
 import { ContextBuilder } from '../utils/context';
 import { extractContent, extractJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
+import { ChatParser } from '../utils/chatParser';
 import { RuleSystemId, DiceConfig, RULE_SYSTEMS, RULE_SYSTEM_LIST, DICE_PRESETS, DEFAULT_DICE_CONFIG, FREEFORM_BASIC_SKILLS, rollDice, rollFlavorFor, formatCharacterSheetsBlock, buildCharacterSheetPrompt, buildFreeformCharacterSheetPrompt, computeCheckTier, findSkillValueByName, CheckTier, CHECK_TIER_LABELS, getCharacterVitals, computeVitalState, computeSanState, VITAL_STATE_LABELS, SAN_STATE_LABELS, VitalState, SanState } from '../utils/trpgRuleSystems';
 import Modal from '../components/os/Modal';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
@@ -366,6 +367,9 @@ const GameApp: React.FC = () => {
     const [selectedLogIds, setSelectedLogIds] = useState<Set<string>>(new Set());
     const [isForwarding, setIsForwarding] = useState(false);
     const [lastRoll, setLastRoll] = useState<number | null>(null); // 最近一次自动骰点结果（瞬时展示）
+    // 本回合骰点已经落库渲染，但 GM 还没推算出是否被采纳为正式检定——这段时间里 diceRoll.tier 是"未知"而非"未采纳"，
+    // 用这个 id 让下面两处气泡渲染暂时不显示徽章/判定说明，避免闪一下灰色"未被采纳"再被结果覆盖掉。
+    const [pendingRollLogId, setPendingRollLogId] = useState<string | null>(null);
     const [lastTokenUsage, setLastTokenUsage] = useState<{prompt?: number, completion?: number, total: number} | null>(null);
     const [totalTokensUsed, setTotalTokensUsed] = useState(0);
     
@@ -388,6 +392,13 @@ const GameApp: React.FC = () => {
     const [playSubView, setPlaySubView] = useState<'game' | 'chatroom'>('game'); // 局内全屏切换：剧情 vs 聊天室（皮下吐槽），不是弹窗
     const [oocInput, setOocInput] = useState('');
     const [isOocLoading, setIsOocLoading] = useState(false);
+    const [selectedOocId, setSelectedOocId] = useState<string | null>(null);
+    const [oocModalType, setOocModalType] = useState<'none' | 'options' | 'edit'>('none');
+    const [editOocContent, setEditOocContent] = useState('');
+    const oocPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [oocSelectMode, setOocSelectMode] = useState(false);          // 聊天室长按多选 → 批量删除/转发到聊天
+    const [selectedOocIds, setSelectedOocIds] = useState<Set<string>>(new Set());
+    const [isOocForwarding, setIsOocForwarding] = useState(false);
     const [uiSettings, setUiSettings] = useState<{fontSize: number, color: string}>({ fontSize: 14, color: '' });
 
     // SAN Lock: Sync from activeGame on load
@@ -1058,20 +1069,30 @@ ${recentOoc}
 
             if (newOocLogs.length === 0) return;
 
-            const finalOocLogs = newOocLogs.map(r => ({
-                id: `ooc-${Date.now()}-${Math.random()}`,
-                charId: r.charId,
-                speakerName: r.speakerName,
-                content: r.content,
-                timestamp: Date.now(),
-            }));
-
-            setActiveGame(prev => {
-                if (!prev || prev.id !== game.id) return prev;
-                const updated = { ...prev, oocLogs: [...(prev.oocLogs || []), ...finalOocLogs] };
-                DB.saveGame(updated);
-                return updated;
-            });
+            // 按正常聊天的分段逻辑（ChatParser.chunkText，主线聊天也用它）把每个角色的一整段吐槽
+            // 拆成几条自然的短消息，并复用同款「按长度算延迟」逐条落库，让聊天室也有逐条蹦出来的节奏，
+            // 不再是一次性甩一大段。角色之间、角色自己的多条之间都按顺序依次出现。
+            for (const r of newOocLogs) {
+                const chunks = ChatParser.chunkText(r.content).filter(c => ChatParser.hasDisplayContent(c));
+                const segments = chunks.length > 0 ? chunks : [r.content];
+                for (const seg of segments) {
+                    const delay = Math.min(Math.max(seg.length * 50, 500), 2000);
+                    await new Promise(res => setTimeout(res, delay));
+                    const entry = {
+                        id: `ooc-${Date.now()}-${Math.random()}`,
+                        charId: r.charId,
+                        speakerName: r.speakerName,
+                        content: seg,
+                        timestamp: Date.now(),
+                    };
+                    setActiveGame(prev => {
+                        if (!prev || prev.id !== game.id) return prev;
+                        const updated = { ...prev, oocLogs: [...(prev.oocLogs || []), entry] };
+                        DB.saveGame(updated);
+                        return updated;
+                    });
+                }
+            }
         } finally {
             setIsOocLoading(false);
         }
@@ -1090,6 +1111,117 @@ ${recentOoc}
         setActiveGame(updated);
         setOocInput('');
         await DB.saveGame(updated);
+    };
+
+    // 聊天室消息长按菜单：跟主线私聊（编辑内容/删除消息）对齐的编辑/删除，直接改 oocLogs 数组落库
+    // （聊天室没有独立的消息表，一整局的吐槽记录就是 GameSession.oocLogs 这一个字段）。
+    const startOocPress = (id: string) => {
+        if (oocSelectMode) return;
+        cancelOocPress();
+        oocPressTimer.current = setTimeout(() => {
+            if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+            setSelectedOocId(id);
+            setOocModalType('options');
+        }, 500);
+    };
+    const cancelOocPress = () => {
+        if (oocPressTimer.current) { clearTimeout(oocPressTimer.current); oocPressTimer.current = null; }
+    };
+    const handleOocEnterSelectionMode = () => {
+        if (selectedOocId) {
+            setSelectedOocIds(new Set([selectedOocId]));
+            setOocSelectMode(true);
+            setOocModalType('none');
+            setSelectedOocId(null);
+        }
+    };
+    const toggleSelectOoc = (id: string) => {
+        setSelectedOocIds(prev => {
+            const n = new Set(prev);
+            n.has(id) ? n.delete(id) : n.add(id);
+            return n;
+        });
+    };
+    const exitOocSelectMode = () => {
+        setOocSelectMode(false);
+        setSelectedOocIds(new Set());
+    };
+    const handleOocEditStart = () => {
+        if (!activeGame || !selectedOocId) return;
+        const target = (activeGame.oocLogs || []).find(o => o.id === selectedOocId);
+        if (!target) return;
+        setEditOocContent(target.content);
+        setOocModalType('edit');
+    };
+    const confirmOocEdit = async () => {
+        if (!activeGame || !selectedOocId) return;
+        const updated = {
+            ...activeGame,
+            oocLogs: (activeGame.oocLogs || []).map(o => o.id === selectedOocId ? { ...o, content: editOocContent } : o),
+        };
+        setActiveGame(updated);
+        await DB.saveGame(updated);
+        setOocModalType('none');
+        setSelectedOocId(null);
+        addToast('消息已修改', 'success');
+    };
+    const handleOocDelete = async () => {
+        if (!activeGame || !selectedOocId) return;
+        const updated = { ...activeGame, oocLogs: (activeGame.oocLogs || []).filter(o => o.id !== selectedOocId) };
+        setActiveGame(updated);
+        await DB.saveGame(updated);
+        setOocModalType('none');
+        setSelectedOocId(null);
+        addToast('消息已删除', 'success');
+    };
+
+    // 批量删除选中的聊天室消息
+    const handleOocBatchDelete = async () => {
+        if (!activeGame || selectedOocIds.size === 0) return;
+        const updated = { ...activeGame, oocLogs: (activeGame.oocLogs || []).filter(o => !selectedOocIds.has(o.id)) };
+        setActiveGame(updated);
+        await DB.saveGame(updated);
+        addToast(`已删除 ${selectedOocIds.size} 条`, 'success');
+        exitOocSelectMode();
+    };
+
+    // 把选中的聊天室消息打包成 trpg_card 转发到聊天，跟剧情视图 handleForwardToChat 同一套卡片格式，
+    // 只是 excerpt 里 role 统一标成 'player'（聊天室发言没有 GM/角色区分，都当作"发言"展示）。
+    const handleOocForwardToChat = async () => {
+        if (!activeGame || selectedOocIds.size === 0) return;
+        setIsOocForwarding(true);
+        try {
+            const players = characters.filter(c => activeGame.playerCharIds.includes(c.id));
+            const selected = (activeGame.oocLogs || []).filter(o => selectedOocIds.has(o.id));
+            const excerpt = selected.map(o => ({
+                role: 'player',
+                speaker: o.speakerName,
+                text: o.content,
+            }));
+            const trpg = {
+                gameTitle: `${activeGame.title}·聊天室`,
+                theme: activeGame.theme,
+                userName: userProfile.name,
+                partyNames: players.map(p => p.name),
+                excerpt,
+                count: excerpt.length,
+            };
+            for (const p of players) {
+                await DB.saveMessage({
+                    charId: p.id,
+                    role: 'user',
+                    type: 'trpg_card',
+                    content: `[TRPG游戏片段]《${activeGame.title}》聊天室`,
+                    metadata: { trpg },
+                });
+            }
+            addToast(`已转发到 ${players.length} 位角色的聊天`, 'success');
+            exitOocSelectMode();
+        } catch (e: any) {
+            addToast(`转发失败: ${e.message}`, 'error');
+        } finally {
+            setIsOocForwarding(false);
+        }
     };
 
     // 把聊天室（皮下吐槽）里尚未推送过的原文，直接（不经过 LLM）塞进参与角色的记忆 + 一条聊天系统消息。
@@ -1169,6 +1301,7 @@ ${recentOoc}
                 diceRoll: currentRoll ? { result: currentRoll, max: diceCfg.count * diceCfg.sides } : undefined
             };
             userLogId = userLog.id;
+            if (currentRoll !== null) setPendingRollLogId(userLogId);
 
             const updatedLogs = [...activeGame.logs, userLog];
             updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now(), suggestedActions: [] };
@@ -1176,6 +1309,24 @@ ${recentOoc}
             setActiveGame(prev => (prev?.id === gameId ? updatedGame : prev));
             await DB.saveGame(updatedGame);
             contextLogs = updatedLogs;
+        } else {
+            // 重新推演（多为"AI 判定结果与骰点/数值不符"报错后点右下角按钮）：
+            // 玩家本人的骰点必须原样保留（不能悄悄换一个新数字再判一次），从上一条 player/system log 里找回来；
+            // 队友的骰点在上次失败的那轮从没存档过（报错发生在角色发言生成之前），只能重投一次——
+            // 这不影响体验，因为上次失败的队友骰点本来就没在气泡里展示过。
+            const lastActionLog = [...contextLogs].reverse().find(l => l.role === 'player' || l.role === 'system');
+            if (lastActionLog) {
+                userLogId = lastActionLog.id;
+                if (lastActionLog.diceRoll) {
+                    currentRoll = lastActionLog.diceRoll.result;
+                    setPendingRollLogId(userLogId);
+                    if (!activeGame.diceDisabled) {
+                        partyRolls = players.filter(p => getVitals(p.id).health > 0).map(p => ({ id: p.id, name: p.name, roll: rollDice(diceCfg) }));
+                        const rollSummary = partyRolls.map(r => `${r.name}:${r.roll}`).join(' / ');
+                        if (rollSummary) addToast(`队友重新判定 → ${rollSummary}`, 'info');
+                    }
+                }
+            }
         }
 
         setUserInput('');
@@ -1477,6 +1628,7 @@ ${buildGmStyleSection(dmStyle)}
             addToast(`GM 掉线了: ${e.message}`, 'error');
         } finally {
             setIsTyping(false);
+            setPendingRollLogId(null);
         }
     };
 
@@ -2635,13 +2787,29 @@ ${logText}
                     {(activeGame.oocLogs || []).map(o => {
                         const isPlayerMsg = o.charId === '__player__';
                         const isDeadSpeaker = playerDeadCharIds.has(o.charId);
+                        const isSelected = selectedOocIds.has(o.id);
                         return (
-                            <div key={o.id} className={`flex gap-2 ${isPlayerMsg ? 'flex-row-reverse' : ''}`}>
-                                <div className="max-w-[75%]">
+                            <div
+                                key={o.id}
+                                onClick={() => { if (oocSelectMode) toggleSelectOoc(o.id); }}
+                                className={`flex gap-2 ${isPlayerMsg ? 'flex-row-reverse' : ''} ${oocSelectMode ? `cursor-pointer rounded-xl px-1 transition-all ${isSelected ? 'ring-2 ring-purple-400 bg-purple-500/10' : 'hover:bg-white/[0.03]'}` : ''}`}
+                            >
+                                {oocSelectMode && (
+                                    <div className={`shrink-0 self-center w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'bg-purple-500 border-purple-400' : 'border-white/40 bg-black/40'}`}>
+                                        {isSelected && <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3 text-white"><path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0l-3.5-3.5a1 1 0 1 1 1.4-1.4l2.8 2.79 6.8-6.79a1 1 0 0 1 1.4 0Z" clipRule="evenodd"/></svg>}
+                                    </div>
+                                )}
+                                <div className={`max-w-[75%] ${oocSelectMode ? 'pointer-events-none select-none' : ''}`}>
                                     <div className={`text-[10px] opacity-50 mb-1 ${isPlayerMsg ? 'text-right' : ''}`}>
                                         {o.speakerName}{isDeadSpeaker && ' 💀'}
                                     </div>
-                                    <div className={`text-xs px-3 py-2 rounded-2xl border ${theme.border} ${isPlayerMsg ? `bg-white/10 ${theme.accent} font-medium` : `${theme.cardBg} ${theme.text}`}`}>
+                                    <div
+                                        onPointerDown={() => startOocPress(o.id)}
+                                        onPointerUp={cancelOocPress}
+                                        onPointerLeave={cancelOocPress}
+                                        onPointerCancel={cancelOocPress}
+                                        className={`text-xs px-3 py-2 rounded-2xl border select-none ${theme.border} ${isPlayerMsg ? `bg-white/10 ${theme.accent} font-medium` : `${theme.cardBg} ${theme.text}`}`}
+                                    >
                                         {o.content}
                                     </div>
                                 </div>
@@ -2651,18 +2819,66 @@ ${logText}
                     {isOocLoading && <p className="text-[10px] opacity-40 text-center animate-pulse">有人在场外吐槽中...</p>}
                 </div>
 
-                <div className={`p-4 pb-[calc(1rem+var(--safe-bottom,0px))] border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20 flex gap-2`}>
-                    <input
-                        value={oocInput}
-                        onChange={e => setOocInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') handleOocSend(); }}
-                        placeholder="场外吐槽两句..."
-                        className={`flex-1 bg-black/20 border ${theme.border} rounded-xl px-3 py-3 outline-none text-sm placeholder-opacity-30 placeholder-current focus:bg-black/40 transition-colors`}
+                {/* 多选批量操作栏，跟剧情视图的转发操作栏同一套交互，多了个批量删除 */}
+                {oocSelectMode ? (
+                    <div className={`p-4 pb-[calc(1rem+var(--safe-bottom,0px))] border-t ${theme.border} bg-black/50 backdrop-blur shrink-0 z-20 flex items-center gap-2 animate-slide-down`}>
+                        <button onClick={exitOocSelectMode} className="px-4 h-11 rounded-xl border border-white/15 text-sm font-bold text-white/70 active:scale-95 transition-transform">取消</button>
+                        <span className="text-xs text-white/50 flex-1 text-center">已选 {selectedOocIds.size} 条</span>
+                        <button
+                            onClick={handleOocBatchDelete}
+                            disabled={selectedOocIds.size === 0}
+                            className="px-4 h-11 rounded-xl bg-red-500/90 text-white text-sm font-bold active:scale-95 transition-transform disabled:opacity-40"
+                        >
+                            删除
+                        </button>
+                        <button
+                            onClick={handleOocForwardToChat}
+                            disabled={selectedOocIds.size === 0 || isOocForwarding}
+                            className="px-5 h-11 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-bold active:scale-95 transition-transform disabled:opacity-40 flex items-center gap-2 shadow-lg shadow-purple-500/20"
+                        >
+                            {isOocForwarding ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> 转发中...</> : '转发到聊天'}
+                        </button>
+                    </div>
+                ) : (
+                    <div className={`p-4 pb-[calc(1rem+var(--safe-bottom,0px))] border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20 flex gap-2`}>
+                        <input
+                            value={oocInput}
+                            onChange={e => setOocInput(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleOocSend(); }}
+                            placeholder="场外吐槽两句..."
+                            className={`flex-1 bg-black/20 border ${theme.border} rounded-xl px-3 py-3 outline-none text-sm placeholder-opacity-30 placeholder-current focus:bg-black/40 transition-colors`}
+                        />
+                        <button onClick={handleOocSend} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center`}>
+                            发送
+                        </button>
+                    </div>
+                )}
+
+                {/* 聊天室消息长按菜单：编辑内容 / 删除消息 / 进入多选，跟主线私聊的交互对齐 */}
+                <Modal isOpen={oocModalType === 'options'} title="消息操作" onClose={() => setOocModalType('none')}>
+                    <div className="space-y-3">
+                        <button onClick={handleOocEnterSelectionMode} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors">
+                            多选 / 批量删除
+                        </button>
+                        <button onClick={handleOocEditStart} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors">
+                            编辑内容
+                        </button>
+                        <button onClick={handleOocDelete} className="w-full py-3 bg-red-50 text-red-500 font-medium rounded-2xl active:bg-red-100 transition-colors">
+                            删除消息
+                        </button>
+                    </div>
+                </Modal>
+
+                <Modal
+                    isOpen={oocModalType === 'edit'} title="编辑内容" onClose={() => setOocModalType('none')}
+                    footer={<><button onClick={() => setOocModalType('none')} className="flex-1 py-3 bg-slate-100 rounded-2xl">取消</button><button onClick={confirmOocEdit} className="flex-1 py-3 bg-purple-500 text-white font-bold rounded-2xl">保存</button></>}
+                >
+                    <textarea
+                        value={editOocContent}
+                        onChange={e => setEditOocContent(e.target.value)}
+                        className="w-full h-32 bg-slate-50 border border-slate-200 rounded-2xl p-3 text-sm text-slate-800 outline-none resize-none"
                     />
-                    <button onClick={handleOocSend} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center`}>
-                        发送
-                    </button>
-                </div>
+                </Modal>
 
                 {renderSharedModalsAndOverlays()}
             </div>
@@ -2871,7 +3087,7 @@ ${logText}
                             <div className="flex flex-col items-end animate-slide-up group relative">
                                 <div className="flex items-center gap-2 mb-1">
                                     <span className={`text-[10px] font-bold opacity-60`}>{log.speakerName}</span>
-                                    {log.diceRoll && (
+                                    {log.diceRoll && log.id !== pendingRollLogId && (
                                         <span className={`text-[10px] px-1.5 rounded font-mono ${diceTierBadgeClass(log.diceRoll)}`}>
                                             <DiceFive size={12} weight="fill" className="inline" /> {log.diceRoll.result}{log.diceRoll.check ? ` ${log.diceRoll.check}` : ''}
                                         </span>
@@ -2880,7 +3096,7 @@ ${logText}
                                 <div className={`px-4 py-2 rounded-2xl rounded-tr-none text-sm bg-orange-600 text-white shadow-md max-w-[85%]`}>
                                     {log.content}
                                 </div>
-                                {diceOutcomeLine(log.diceRoll) && (
+                                {log.id !== pendingRollLogId && diceOutcomeLine(log.diceRoll) && (
                                     <span className="mt-1 text-[10px] opacity-50">→ {diceOutcomeLine(log.diceRoll)}</span>
                                 )}
                                 <button onClick={() => handleRollbackLog(i)} className="mt-1 text-[9px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:underline">回退</button>
