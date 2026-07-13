@@ -2223,8 +2223,13 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                             <IdentificationCard size={22} weight="fill" />
                         </button>
                     )}
-                    {/* Toggle Party HUD */}
-                    <button onClick={() => setShowParty(!showParty)} className={`p-2 rounded hover:bg-white/10 active:scale-95 transition-transform ${showParty ? theme.accent : 'opacity-50'}`}>
+                    {/* Toggle Party HUD：聊天室里没有 Party HUD 面板，这个按钮在聊天室视图置灰不可用 */}
+                    <button
+                        onClick={() => setShowParty(!showParty)}
+                        disabled={playSubView === 'chatroom'}
+                        className={`p-2 rounded hover:bg-white/10 active:scale-95 transition-transform ${playSubView === 'chatroom' ? 'opacity-30 cursor-not-allowed' : (showParty ? theme.accent : 'opacity-50')}`}
+                        title={playSubView === 'chatroom' ? '聊天室无队伍面板' : '显示/隐藏队伍面板'}
+                    >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
                     </button>
                     {/* 剧情/聊天室切换：不是小功能入口，是跟主线并列的全屏视图切换。聊天室=皮下吐槽 */}
@@ -2243,6 +2248,175 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                 </div>
             </div>
         </div>
+    );
+
+    // 系统菜单/数值表/删除确认三个 Modal 及归档/总结全屏遮罩：剧情视图和聊天室视图都要能弹出，
+    // 提出来公用一份，避免之前聊天室视图 return 分支里完全没挂这些 Modal，点顶栏按钮没反应的问题。
+    const renderSharedModalsAndOverlays = () => (
+        <>
+            {/* System Menu Modal */}
+            <Modal isOpen={showSystemMenu} title="系统菜单" onClose={() => setShowSystemMenu(false)}>
+                <div className="space-y-4">
+                    {/* UI Settings */}
+                    <div className="bg-slate-100 p-3 rounded-xl">
+                        <label className="text-xs text-slate-500 font-bold mb-3 block border-b border-slate-200 pb-1">阅读设置 (Display)</label>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs text-slate-400 w-8">字号</span>
+                                <input
+                                    type="range"
+                                    min="12"
+                                    max="24"
+                                    step="1"
+                                    value={uiSettings.fontSize}
+                                    onChange={e => setUiSettings({...uiSettings, fontSize: parseInt(e.target.value)})}
+                                    className="flex-1 h-1.5 bg-slate-300 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                />
+                                <span className="text-xs font-mono text-slate-600 w-6 text-right">{uiSettings.fontSize}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs text-slate-400 w-8">颜色</span>
+                                <input
+                                    type="color"
+                                    value={uiSettings.color || '#e5e5e5'}
+                                    onChange={e => setUiSettings({...uiSettings, color: e.target.value})}
+                                    className="w-full h-8 rounded cursor-pointer bg-white border border-slate-200 p-0.5"
+                                />
+                            </div>
+                            <button onClick={() => setUiSettings({ fontSize: 14, color: '' })} className="w-full py-1.5 bg-white border border-slate-200 text-slate-500 text-xs rounded-lg active:scale-95 transition-transform">恢复默认</button>
+                        </div>
+                    </div>
+
+                    {/* 玩法设置 */}
+                    <div className="bg-slate-100 p-3 rounded-xl">
+                        <label className="text-xs text-slate-500 font-bold mb-3 block border-b border-slate-200 pb-1">玩法设置 (Gameplay)</label>
+                        <div className="text-[10px] text-slate-400 mb-2 flex items-center justify-between">
+                            <span>规则系统：{playRuleSystemDef.name}</span>
+                            {activeGame.characterSheets && Object.keys(activeGame.characterSheets).length > 0 && (
+                                <button onClick={() => setShowSheetsInMenu(v => !v)} className="text-slate-500 underline">{showSheetsInMenu ? '收起数值表' : '查看数值表'}</button>
+                            )}
+                        </div>
+                        {showSheetsInMenu && activeGame.characterSheets && (
+                            <div className="mb-3 space-y-1.5">
+                                {Object.values(activeGame.characterSheets).map(entry => (
+                                    <div key={entry.name} className="bg-white rounded-lg p-2 text-[10px] text-slate-600 leading-snug">
+                                        <span className="font-bold text-slate-700">{entry.name}</span>
+                                        {' '}{Object.entries(entry.characteristics).map(([k, v]) => `${(playRuleSystemDef.characteristics || []).find(c => c.key === k)?.label.split(' ')[0] || k}${v}`).join(' ')}
+                                        <br />{Object.entries(entry.skills).map(([k, v]) => `${(playRuleSystemDef.skills || []).find(s => s.key === k)?.label.split(' ')[0] || k}${v}`).join('、')}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                            <div className="flex flex-col">
+                                <span className="text-sm text-slate-700 font-medium flex items-center gap-1.5"><DiceFive size={16} weight="fill" /> 骰子判定 ({resolveDiceConfig(activeGame).label})</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">关闭后，每次行动不再自动骰点</span>
+                            </div>
+                            <button
+                                onClick={toggleDice}
+                                role="switch"
+                                aria-checked={!activeGame.diceDisabled}
+                                className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${activeGame.diceDisabled ? 'bg-slate-300' : 'bg-emerald-500'}`}
+                            >
+                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.diceDisabled ? '' : 'translate-x-6'}`}></span>
+                            </button>
+                        </div>
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
+                            <div className="flex flex-col">
+                                <span className="text-sm text-slate-700 font-medium flex items-center gap-1.5"><ChatCircleDots size={16} weight="fill" /> 聊天室</span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">开启后每回合结束给每个角色各自单独调一次 LLM 生成场外吐槽（皮下吐槽，互不看到对方细节），不进主线剧情；死亡/昏迷角色也能场外发言</span>
+                            </div>
+                            <button
+                                onClick={toggleOoc}
+                                role="switch"
+                                aria-checked={!!activeGame.oocEnabled}
+                                className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${activeGame.oocEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                            >
+                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.oocEnabled ? 'translate-x-6' : ''}`}></span>
+                            </button>
+                        </div>
+                        {activeGame.oocEnabled && (
+                            <div className="flex items-center justify-between mt-2 pl-1">
+                                <span className="text-[10px] text-slate-400">
+                                    生成方式：{(activeGame.oocCallMode || 'individual') === 'batch' ? '一次性生成所有人（省调用，速度快）' : '逐角色独立调用（防串记忆，更准确）'}
+                                </span>
+                                <button
+                                    onClick={toggleOocCallMode}
+                                    className="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium hover:bg-slate-200 shrink-0"
+                                >
+                                    切换为{(activeGame.oocCallMode || 'individual') === 'batch' ? '逐角色独立' : '一次性生成'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    <button onClick={handleArchiveAndQuit} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
+                        <FloppyDisk size={18} /> 归档记忆并退出
+                    </button>
+                    <button onClick={handleRestart} className="w-full py-3 bg-orange-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
+                        <ArrowsClockwise size={18} /> 重置当前游戏
+                    </button>
+                    <button onClick={handleLeave} className="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl flex items-center justify-center gap-2">
+                        <DoorOpen size={18} /> 暂时离开 (不归档)
+                    </button>
+                </div>
+            </Modal>
+
+            {/* 角色数值表 Modal：局内一键可见，不用再钻进系统菜单里找 */}
+            <Modal isOpen={showSheetModal} title={`角色数值表 · ${playRuleSystemDef.name}`} onClose={() => setShowSheetModal(false)}>
+                <div className="space-y-2.5">
+                    {activeGame.characterSheets && Object.values(activeGame.characterSheets).map(entry => (
+                        <div key={entry.name} className="bg-slate-100 rounded-xl p-3">
+                            <div className="text-sm font-bold text-slate-700 mb-1.5">{entry.name}</div>
+                            {entry.note && <div className="text-[10px] text-slate-400 mb-2 leading-snug">{entry.note}</div>}
+                            <div className="grid grid-cols-4 gap-1.5 mb-1.5">
+                                {(playRuleSystemDef.characteristics || []).map(c => (
+                                    <div key={c.key} className="flex flex-col items-center bg-white rounded-lg p-1.5 border border-slate-200">
+                                        <span className="text-[8px] text-slate-400 truncate w-full text-center" title={c.label}>{c.label.split(' ')[0]}</span>
+                                        <span className="text-xs font-mono font-bold text-slate-700">{entry.characteristics[c.key] ?? '-'}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5">
+                                {(playRuleSystemDef.skills || []).map(s => (
+                                    <div key={s.key} className="flex flex-col items-center bg-white rounded-lg p-1.5 border border-slate-200">
+                                        <span className="text-[8px] text-slate-400 truncate w-full text-center" title={s.label}>{s.label.split(' ')[0]}</span>
+                                        <span className="text-xs font-mono font-bold text-slate-700">{entry.skills[s.key] ?? '-'}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </Modal>
+
+            {/* Delete Save Confirm Modal */}
+            <Modal isOpen={!!deleteConfirmId} title="删除存档" onClose={() => setDeleteConfirmId(null)} footer={
+                <div className="flex gap-3 w-full">
+                    <button onClick={() => setDeleteConfirmId(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">取消</button>
+                    <button onClick={confirmDeleteGame} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-200">删除</button>
+                </div>
+            }>
+                <p className="text-sm text-slate-600 text-center py-4">确定要删除这个存档吗？<br/><span className="text-xs text-red-400 mt-1 block">此操作不可恢复。</span></p>
+            </Modal>
+
+            {/* Archive Overlay */}
+            {isArchiving && (
+                <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center text-white flex-col gap-4 animate-fade-in">
+                    <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-xs tracking-widest font-mono">正在传递记忆...</span>
+                </div>
+            )}
+
+            {/* Auto-Summary Overlay (每 20 条自动总结的全屏反馈) */}
+            {isSummarizing && (
+                <div className="absolute inset-0 bg-black/85 z-50 flex items-center justify-center text-white flex-col gap-5 animate-fade-in px-8 text-center">
+                    <div className="w-10 h-10 border-4 border-purple-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm tracking-widest font-bold">正在总结前文内容…</span>
+                    <span className="text-[11px] opacity-50 font-mono leading-relaxed">归档剧情 · 提炼起因经过结果 · 记录人物关系变化</span>
+                </div>
+            )}
+        </>
     );
 
     // 3b. 聊天室（皮下吐槽）全屏视图：跟主线剧情并列的独立视图，不是弹窗。风格跟随当前跑团主题
@@ -2290,6 +2464,8 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                         发送
                     </button>
                 </div>
+
+                {renderSharedModalsAndOverlays()}
             </div>
         );
     }
@@ -2638,168 +2814,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                 )}
             </div>
 
-            {/* System Menu Modal */}
-            <Modal isOpen={showSystemMenu} title="系统菜单" onClose={() => setShowSystemMenu(false)}>
-                <div className="space-y-4">
-                    {/* UI Settings */}
-                    <div className="bg-slate-100 p-3 rounded-xl">
-                        <label className="text-xs text-slate-500 font-bold mb-3 block border-b border-slate-200 pb-1">阅读设置 (Display)</label>
-                        <div className="space-y-3">
-                            <div className="flex items-center gap-3">
-                                <span className="text-xs text-slate-400 w-8">字号</span>
-                                <input 
-                                    type="range" 
-                                    min="12" 
-                                    max="24" 
-                                    step="1"
-                                    value={uiSettings.fontSize} 
-                                    onChange={e => setUiSettings({...uiSettings, fontSize: parseInt(e.target.value)})} 
-                                    className="flex-1 h-1.5 bg-slate-300 rounded-lg appearance-none cursor-pointer accent-orange-500" 
-                                />
-                                <span className="text-xs font-mono text-slate-600 w-6 text-right">{uiSettings.fontSize}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <span className="text-xs text-slate-400 w-8">颜色</span>
-                                <input 
-                                    type="color" 
-                                    value={uiSettings.color || '#e5e5e5'} 
-                                    onChange={e => setUiSettings({...uiSettings, color: e.target.value})} 
-                                    className="w-full h-8 rounded cursor-pointer bg-white border border-slate-200 p-0.5" 
-                                />
-                            </div>
-                            <button onClick={() => setUiSettings({ fontSize: 14, color: '' })} className="w-full py-1.5 bg-white border border-slate-200 text-slate-500 text-xs rounded-lg active:scale-95 transition-transform">恢复默认</button>
-                        </div>
-                    </div>
-
-                    {/* 玩法设置 */}
-                    <div className="bg-slate-100 p-3 rounded-xl">
-                        <label className="text-xs text-slate-500 font-bold mb-3 block border-b border-slate-200 pb-1">玩法设置 (Gameplay)</label>
-                        <div className="text-[10px] text-slate-400 mb-2 flex items-center justify-between">
-                            <span>规则系统：{playRuleSystemDef.name}</span>
-                            {activeGame.characterSheets && Object.keys(activeGame.characterSheets).length > 0 && (
-                                <button onClick={() => setShowSheetsInMenu(v => !v)} className="text-slate-500 underline">{showSheetsInMenu ? '收起数值表' : '查看数值表'}</button>
-                            )}
-                        </div>
-                        {showSheetsInMenu && activeGame.characterSheets && (
-                            <div className="mb-3 space-y-1.5">
-                                {Object.values(activeGame.characterSheets).map(entry => (
-                                    <div key={entry.name} className="bg-white rounded-lg p-2 text-[10px] text-slate-600 leading-snug">
-                                        <span className="font-bold text-slate-700">{entry.name}</span>
-                                        {' '}{Object.entries(entry.characteristics).map(([k, v]) => `${(playRuleSystemDef.characteristics || []).find(c => c.key === k)?.label.split(' ')[0] || k}${v}`).join(' ')}
-                                        <br />{Object.entries(entry.skills).map(([k, v]) => `${(playRuleSystemDef.skills || []).find(s => s.key === k)?.label.split(' ')[0] || k}${v}`).join('、')}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        <div className="flex items-center justify-between">
-                            <div className="flex flex-col">
-                                <span className="text-sm text-slate-700 font-medium flex items-center gap-1.5"><DiceFive size={16} weight="fill" /> 骰子判定 ({resolveDiceConfig(activeGame).label})</span>
-                                <span className="text-[10px] text-slate-400 mt-0.5">关闭后，每次行动不再自动骰点</span>
-                            </div>
-                            <button
-                                onClick={toggleDice}
-                                role="switch"
-                                aria-checked={!activeGame.diceDisabled}
-                                className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${activeGame.diceDisabled ? 'bg-slate-300' : 'bg-emerald-500'}`}
-                            >
-                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.diceDisabled ? '' : 'translate-x-6'}`}></span>
-                            </button>
-                        </div>
-                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
-                            <div className="flex flex-col">
-                                <span className="text-sm text-slate-700 font-medium flex items-center gap-1.5"><ChatCircleDots size={16} weight="fill" /> 聊天室</span>
-                                <span className="text-[10px] text-slate-400 mt-0.5">开启后每回合结束给每个角色各自单独调一次 LLM 生成场外吐槽（皮下吐槽，互不看到对方细节），不进主线剧情；死亡/昏迷角色也能场外发言</span>
-                            </div>
-                            <button
-                                onClick={toggleOoc}
-                                role="switch"
-                                aria-checked={!!activeGame.oocEnabled}
-                                className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${activeGame.oocEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                            >
-                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.oocEnabled ? 'translate-x-6' : ''}`}></span>
-                            </button>
-                        </div>
-                        {activeGame.oocEnabled && (
-                            <div className="flex items-center justify-between mt-2 pl-1">
-                                <span className="text-[10px] text-slate-400">
-                                    生成方式：{(activeGame.oocCallMode || 'individual') === 'batch' ? '一次性生成所有人（省调用，速度快）' : '逐角色独立调用（防串记忆，更准确）'}
-                                </span>
-                                <button
-                                    onClick={toggleOocCallMode}
-                                    className="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium hover:bg-slate-200 shrink-0"
-                                >
-                                    切换为{(activeGame.oocCallMode || 'individual') === 'batch' ? '逐角色独立' : '一次性生成'}
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    <button onClick={handleArchiveAndQuit} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
-                        <FloppyDisk size={18} /> 归档记忆并退出
-                    </button>
-                    <button onClick={handleRestart} className="w-full py-3 bg-orange-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
-                        <ArrowsClockwise size={18} /> 重置当前游戏
-                    </button>
-                    <button onClick={handleLeave} className="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl flex items-center justify-center gap-2">
-                        <DoorOpen size={18} /> 暂时离开 (不归档)
-                    </button>
-                </div>
-            </Modal>
-
-            {/* 角色数值表 Modal：局内一键可见，不用再钻进系统菜单里找 */}
-            <Modal isOpen={showSheetModal} title={`角色数值表 · ${playRuleSystemDef.name}`} onClose={() => setShowSheetModal(false)}>
-                <div className="space-y-2.5">
-                    {activeGame.characterSheets && Object.values(activeGame.characterSheets).map(entry => (
-                        <div key={entry.name} className="bg-slate-100 rounded-xl p-3">
-                            <div className="text-sm font-bold text-slate-700 mb-1.5">{entry.name}</div>
-                            {entry.note && <div className="text-[10px] text-slate-400 mb-2 leading-snug">{entry.note}</div>}
-                            <div className="grid grid-cols-4 gap-1.5 mb-1.5">
-                                {(playRuleSystemDef.characteristics || []).map(c => (
-                                    <div key={c.key} className="flex flex-col items-center bg-white rounded-lg p-1.5 border border-slate-200">
-                                        <span className="text-[8px] text-slate-400 truncate w-full text-center" title={c.label}>{c.label.split(' ')[0]}</span>
-                                        <span className="text-xs font-mono font-bold text-slate-700">{entry.characteristics[c.key] ?? '-'}</span>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="grid grid-cols-3 gap-1.5">
-                                {(playRuleSystemDef.skills || []).map(s => (
-                                    <div key={s.key} className="flex flex-col items-center bg-white rounded-lg p-1.5 border border-slate-200">
-                                        <span className="text-[8px] text-slate-400 truncate w-full text-center" title={s.label}>{s.label.split(' ')[0]}</span>
-                                        <span className="text-xs font-mono font-bold text-slate-700">{entry.skills[s.key] ?? '-'}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </Modal>
-
-            {/* Delete Save Confirm Modal */}
-            <Modal isOpen={!!deleteConfirmId} title="删除存档" onClose={() => setDeleteConfirmId(null)} footer={
-                <div className="flex gap-3 w-full">
-                    <button onClick={() => setDeleteConfirmId(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">取消</button>
-                    <button onClick={confirmDeleteGame} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-200">删除</button>
-                </div>
-            }>
-                <p className="text-sm text-slate-600 text-center py-4">确定要删除这个存档吗？<br/><span className="text-xs text-red-400 mt-1 block">此操作不可恢复。</span></p>
-            </Modal>
-
-            {/* Archive Overlay */}
-            {isArchiving && (
-                <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center text-white flex-col gap-4 animate-fade-in">
-                    <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-                    <span className="text-xs tracking-widest font-mono">正在传递记忆...</span>
-                </div>
-            )}
-
-            {/* Auto-Summary Overlay (每 20 条自动总结的全屏反馈) */}
-            {isSummarizing && (
-                <div className="absolute inset-0 bg-black/85 z-50 flex items-center justify-center text-white flex-col gap-5 animate-fade-in px-8 text-center">
-                    <div className="w-10 h-10 border-4 border-purple-400 border-t-transparent rounded-full animate-spin"></div>
-                    <span className="text-sm tracking-widest font-bold">正在总结前文内容…</span>
-                    <span className="text-[11px] opacity-50 font-mono leading-relaxed">归档剧情 · 提炼起因经过结果 · 记录人物关系变化</span>
-                </div>
-            )}
+            {renderSharedModalsAndOverlays()}
         </div>
     );
 };
