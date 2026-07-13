@@ -10,7 +10,7 @@ import { ChatParser } from '../utils/chatParser';
 import { RuleSystemId, DiceConfig, RULE_SYSTEMS, RULE_SYSTEM_LIST, DICE_PRESETS, DEFAULT_DICE_CONFIG, FREEFORM_BASIC_SKILLS, rollDice, rollFlavorFor, formatCharacterSheetsBlock, buildCharacterSheetPrompt, buildFreeformCharacterSheetPrompt, computeCheckTier, findSkillValueByName, CheckTier, CHECK_TIER_LABELS, getCharacterVitals, computeVitalState, computeSanState, VITAL_STATE_LABELS, SAN_STATE_LABELS, VitalState, SanState } from '../utils/trpgRuleSystems';
 import Modal from '../components/os/Modal';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
-import { Planet, RocketLaunch, Lightning, LockSimple, DiceFive, Toolbox, FloppyDisk, ArrowsClockwise, DoorOpen, IdentificationCard, Eye, ChatCircleDots, SkullIcon } from '@phosphor-icons/react';
+import { Planet, RocketLaunch, Lightning, LockSimple, DiceFive, Toolbox, FloppyDisk, ArrowsClockwise, DoorOpen, IdentificationCard, Eye, SkullIcon } from '@phosphor-icons/react';
 
 // --- Themes Configuration (Enhanced) ---
 const GAME_THEMES: Record<GameTheme, { bg: string, text: string, accent: string, font: string, border: string, cardBg: string, gradient: string, optionNormal: string, optionChaotic: string, optionEvil: string }> = {
@@ -913,18 +913,6 @@ ${playerContext}
         setActiveGame(updated);
         await DB.saveGame(updated);
         addToast(newEnabled ? '已开启皮下吐槽（每回合结束会给每个角色各自单独调一次 LLM，不进主线）' : '已关闭皮下吐槽', 'info');
-    };
-
-    // 顶栏"聊天室"胶囊常驻显示后，第一次点进来时顺手开启功能，不用先去系统菜单摸开关
-    const handleGoToChatroom = async () => {
-        if (!activeGame) return;
-        if (!activeGame.oocEnabled) {
-            const updated = { ...activeGame, oocEnabled: true };
-            setActiveGame(updated);
-            await DB.saveGame(updated);
-            addToast('已开启皮下吐槽（每回合结束会给每个角色各自单独调一次 LLM，不进主线）', 'info');
-        }
-        setPlaySubView('chatroom');
     };
 
     const toggleOocCallMode = async () => {
@@ -2612,11 +2600,12 @@ ${logText}
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
                     </button>
-                    {/* 剧情/聊天室切换：常驻显示，不再靠 oocEnabled 隐藏——否则没开过的人根本发现不了这功能。
-                        没开启时点"聊天室"会顺手开启（进 handleGoToChatroom），开关的收纳入口挪进聊天室视图本身。 */}
+                    {/* 剧情/聊天室切换：常驻显示，纯粹是视图切换，不碰 oocEnabled——
+                        是否开启"自动生成吐槽"这个功能开关，收在聊天室视图里自己管，点这个胶囊不会顺手帮用户改功能开关状态
+                        （否则"点开关掉、点剧情又自动开回来"这种隔壁按钮打架的体验会很怪，而且看历史记录时也不该被迫重新开启）。 */}
                     <div className={`flex items-center rounded-full border ${theme.border} bg-black/20 p-0.5 text-[10px] font-bold mr-1`}>
                         <button onClick={() => setPlaySubView('game')} className={`px-3 py-1.5 rounded-full transition-all active:scale-95 ${playSubView === 'game' ? `bg-white/10 ${theme.accent}` : 'opacity-60 hover:opacity-90'}`}>剧情</button>
-                        <button onClick={handleGoToChatroom} className={`relative px-3 py-1.5 rounded-full transition-all active:scale-95 flex items-center gap-1 ${playSubView === 'chatroom' ? `bg-white/10 ${theme.accent}` : 'opacity-60 hover:opacity-90'}`} title="聊天室（皮下吐槽）">
+                        <button onClick={() => setPlaySubView('chatroom')} className={`relative px-3 py-1.5 rounded-full transition-all active:scale-95 flex items-center gap-1 ${playSubView === 'chatroom' ? `bg-white/10 ${theme.accent}` : 'opacity-60 hover:opacity-90'}`} title="聊天室（皮下吐槽）">
                             聊天室
                             {isOocLoading && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>}
                         </button>
@@ -2702,34 +2691,9 @@ ${logText}
                                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.diceDisabled ? '' : 'translate-x-6'}`}></span>
                             </button>
                         </div>
-                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
-                            <div className="flex flex-col">
-                                <span className="text-sm text-slate-700 font-medium flex items-center gap-1.5"><ChatCircleDots size={16} weight="fill" /> 聊天室</span>
-                                <span className="text-[10px] text-slate-400 mt-0.5">开启后每回合结束给每个角色各自单独调一次 LLM 生成场外吐槽（皮下吐槽，互不看到对方细节），不进主线剧情；死亡/昏迷角色也能场外发言</span>
-                            </div>
-                            <button
-                                onClick={toggleOoc}
-                                role="switch"
-                                aria-checked={!!activeGame.oocEnabled}
-                                className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${activeGame.oocEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                            >
-                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.oocEnabled ? 'translate-x-6' : ''}`}></span>
-                            </button>
-                        </div>
-                        {activeGame.oocEnabled && (
-                            <div className="flex items-center justify-between mt-2 pl-1">
-                                <span className="text-[10px] text-slate-400">
-                                    生成方式：{(activeGame.oocCallMode || 'individual') === 'batch' ? '一次性生成所有人（省调用，速度快）' : '逐角色独立调用（防串记忆，更准确）'}
-                                </span>
-                                <button
-                                    onClick={toggleOocCallMode}
-                                    className="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium hover:bg-slate-200 shrink-0"
-                                >
-                                    切换为{(activeGame.oocCallMode || 'individual') === 'batch' ? '逐角色独立' : '一次性生成'}
-                                </button>
-                            </div>
-                        )}
                     </div>
+                    {/* 聊天室（皮下吐槽）的开关+生成方式已经整个搬进聊天室视图本身管理，这里不再重复放一份，
+                        免得两处状态各显示一套、改了一处另一处没同步的错觉 */}
 
                     <button onClick={handleArchiveAndQuit} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
                         <FloppyDisk size={18} /> 归档记忆并退出
@@ -2806,15 +2770,37 @@ ${logText}
             <div className={`h-full w-full relative flex flex-col ${theme.bg} ${theme.text} ${theme.font} transition-colors duration-500 overflow-hidden`}>
                 {renderTopBar()}
 
-                <div className={`px-4 py-2 border-b ${theme.border} bg-black/10 backdrop-blur-sm z-10 shrink-0 flex items-center justify-between gap-2`}>
-                    <span className="text-[10px] opacity-50 flex-1 text-center">皮下吐槽 · 大家退出游戏状态后的真实闲聊，不进主线剧情</span>
-                    <button
-                        onClick={async () => { await toggleOoc(); setPlaySubView('game'); }}
-                        className="text-[10px] px-2 py-1 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 transition-all shrink-0 opacity-70"
-                        title="关闭皮下吐槽功能，回到剧情视图"
-                    >
-                        关闭聊天室
-                    </button>
+                {/* 聊天室顶部：功能说明 + 启用开关 + 生成模式选择，这三项原本埋在系统菜单里，现在整体搬到这里在聊天室视图内集中管理 */}
+                <div className={`px-4 py-3 border-b ${theme.border} bg-black/10 backdrop-blur-sm z-10 shrink-0 space-y-2`}>
+                    <div className="text-[10px] opacity-60 text-center">
+                        皮下吐槽 · 大家退出游戏状态后的真实闲聊，不进主线剧情
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className={`${activeGame.oocEnabled ? 'opacity-80' : 'opacity-50'}`}>
+                            {activeGame.oocEnabled ? '每回合结束自动生成吐槽' : '当前已关闭自动生成'}
+                        </span>
+                        <button
+                            onClick={toggleOoc}
+                            role="switch"
+                            aria-checked={!!activeGame.oocEnabled}
+                            className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${activeGame.oocEnabled ? 'bg-emerald-500' : 'bg-white/20'}`}
+                        >
+                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${activeGame.oocEnabled ? 'translate-x-5' : ''}`}></span>
+                        </button>
+                    </div>
+                    {activeGame.oocEnabled && (
+                        <div className="flex items-center justify-between gap-2 text-[10px] pt-1 border-t border-white/10">
+                            <span className="opacity-60">
+                                生成方式：{(activeGame.oocCallMode || 'individual') === 'batch' ? '一次性生成所有人（省调用，快）' : '逐角色独立（防串记忆，准）'}
+                            </span>
+                            <button
+                                onClick={toggleOocCallMode}
+                                className="px-2 py-1 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 transition-all shrink-0 opacity-80"
+                            >
+                                切换
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
