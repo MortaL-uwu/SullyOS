@@ -1546,57 +1546,98 @@ ${logText}
         if (!activeGame) return;
         setIsArchiving(true);
         setShowSystemMenu(false);
-        
+
         try {
-            const players = characters.filter(c => activeGame.playerCharIds.includes(c.id));
+            const game = activeGame;
+            const players = characters.filter(c => game.playerCharIds.includes(c.id));
             const playerNames = players.map(p => p.name).join('、');
-            // Increase log context for summary
-            const logText = activeGame.logs.slice(-30).map(l => `${l.role}: ${l.content}`).join('\n');
-            
-            const prompt = `Task: Summarize the key events of this TRPG session into a short clause (what happened).
-Game: ${activeGame.title}
-Logs:
-${logText}
-Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆"). No preamble.`;
-
-            const data = await fetchGameAPI(prompt);
-            let summary = extractContent(data) || '进行了一场冒险';
-            summary = summary.replace(/[。\.]$/, ''); // Remove trailing dot
-
-            // Format: 【角色名们】和【用户名】一起玩了xxx，发生了xxxx
-            const memoryContent = `【${playerNames}】和【${userProfile.name}】一起玩了《${activeGame.title}》，发生了${summary}`;
-            
-            // Format: YYYY-MM-DD
             const now = new Date();
             const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-            for (const p of players) {
-                // 1. Inject into Memory
-                const mem = {
-                    id: `mem-${Date.now()}-${Math.random()}`,
-                    date: dateStr,
-                    summary: memoryContent,
-                    mood: 'fun'
-                };
-                updateCharacter(p.id, { memories: [...(p.memories || []), mem] });
+            // 把还没被自动总结覆盖的尾部日志，用跟自动总结完全一样的「小说式总结」提示词补总结一段——
+            // 这里之前用的是另一套"总结成一句话"的提示词，格式对不上段落总结，长度也差一大截，是这个函数一句话
+            // 总结的根源。
+            const nonArchived = game.logs.filter(l => !l.archived);
+            let finalChunkSummary = '';
+            let updatedGame = game;
+            if (nonArchived.length > 0) {
+                const prevRecap = (game.summaries || []).map((s, i) => `【第${i + 1}段】${s.content}`).join('\n');
+                const logText = nonArchived.map(l => {
+                    const who = l.role === 'gm' ? 'GM' : (l.speakerName || 'System');
+                    return `[${who}]: ${l.content}`;
+                }).join('\n');
 
-                // 2. Inject into Context via System Message
-                await DB.saveMessage({
-                    charId: p.id,
-                    role: 'system',
-                    type: 'text',
-                    content: `[TRPG 归档提醒: 刚刚你们一起玩了《${activeGame.title}》。${summary}。]`
-                });
+                const prompt = `你是一位擅长写小说的记录者。请把下面这段 TRPG 跑团剧情，总结成一段**连贯、生动、像小说梗概一样**的前情提要。
+${prevRecap ? `\n【已有前情（仅供衔接，不要重复）】\n${prevRecap}\n` : ''}
+【本段需要总结的剧情记录（这是最后一段，游戏即将归档退出）】
+${logText}
+
+要求：
+1. 用第三人称叙述，包含【起因 → 经过 → 结果】的来龙去脉。
+2. 重点写清楚**人物之间的关系变化与各自的处境/情绪**（谁和谁更近了/起了冲突/暴露了什么）。
+3. 控制在 200~350 字，文笔流畅，不要分点罗列，不要写"总结如下"之类的开场白。
+
+直接输出总结正文：`;
+
+                const data = await fetchGameAPI(prompt, 1500);
+                finalChunkSummary = (extractContent(data) || '').trim();
+                if (!finalChunkSummary) finalChunkSummary = '（这段冒险继续推进了剧情）';
+
+                const newSummary: GameSummary = {
+                    id: `sum-${Date.now()}`,
+                    content: finalChunkSummary,
+                    logCount: nonArchived.length,
+                    logIds: nonArchived.map(l => l.id),
+                    createdAt: Date.now(),
+                };
+                const archiveIds = new Set(nonArchived.map(l => l.id));
+                updatedGame = {
+                    ...game,
+                    logs: game.logs.map(l => archiveIds.has(l.id) ? { ...l, archived: true } : l),
+                    summaries: [...(game.summaries || []), newSummary],
+                };
             }
-            // 手动归档模式下，聊天室（皮下吐槽）原文没有跟随自动总结推送过——这里跟主线归档一起补送（同样不经过 LLM）
-            await pushOocToMemory(activeGame);
+
+            // 拼出要写入角色记忆/聊天的完整叙事：
+            // - auto 模式：之前每段总结在生成当时就已经推送过聊天了，这里只需要补最后这段尾巴。
+            // - manual 模式：所有总结段落此前都没推送过（只有点「归档并退出」才真正发到聊天）——这里要把
+            //   全部历史段落 + 最后这段一起拼成完整叙事发出去，否则前面大半场经历会凭空消失，只剩最后一小段。
+            const segments = game.archiveMode === 'auto'
+                ? [finalChunkSummary].filter(Boolean)
+                : [...(game.summaries || []).map(s => s.content), finalChunkSummary].filter(Boolean);
+            const fullNarrative = segments.join('\n\n');
+
+            if (fullNarrative) {
+                const cardLine = `和【${playerNames}】一起玩《${game.title}》TRPG，${fullNarrative}`;
+                for (const p of players) {
+                    const mem = {
+                        id: `mem-${Date.now()}-${Math.random()}`,
+                        date: dateStr,
+                        summary: cardLine,
+                        mood: 'fun'
+                    };
+                    updateCharacter(p.id, { memories: [...(p.memories || []), mem] });
+                    await DB.saveMessage({
+                        charId: p.id,
+                        role: 'system',
+                        type: 'text',
+                        content: `[TRPG 归档提醒: 刚刚你们一起玩了《${game.title}》。${fullNarrative}]`
+                    });
+                }
+            }
+
+            // 聊天室（皮下吐槽）原文没跟随自动总结推送过的，这里跟主线归档一起补送（同样不经过 LLM）
+            const pushedCount = await pushOocToMemory(updatedGame);
+            updatedGame = { ...updatedGame, oocPushedCount: pushedCount };
+            await DB.saveGame(updatedGame);
+
             addToast('记忆传递完成 (Chat & Memory)', 'success');
         } catch (e) {
             console.error(e);
             addToast('归档失败', 'error');
         } finally {
             setIsArchiving(false);
-            setView('lobby'); 
+            setView('lobby');
             setActiveGame(null);
         }
     };
