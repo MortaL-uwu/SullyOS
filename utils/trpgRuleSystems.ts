@@ -301,9 +301,19 @@ export const findSkillValueByName = (
         ...(sys.skills || []).map(s => ({ key: s.key, label: s.label, kind: 'skill' as const })),
         ...(sys.characteristics || []).map(c => ({ key: c.key, label: c.label, kind: 'char' as const })),
     ];
+    // 先精确匹配（去掉括号后的核心部分完全相等，或 key 完全相等）
     for (const p of pools) {
         const core = stripParen(p.label);
-        if (core === query || query.includes(core) || core.includes(query) || p.key.toLowerCase() === query.toLowerCase()) {
+        if (core === query || p.key.toLowerCase() === query.toLowerCase()) {
+            const src = p.kind === 'skill' ? sheet.skills : sheet.characteristics;
+            const v = src?.[p.key];
+            if (v !== undefined) return v;
+        }
+    }
+    // 再部分匹配（只允许 query 是 core 的子串，不允许反向 core.includes(query)，防止"力"同时命中"力量"和"魅力"）
+    for (const p of pools) {
+        const core = stripParen(p.label);
+        if (core.includes(query)) {
             const src = p.kind === 'skill' ? sheet.skills : sheet.characteristics;
             const v = src?.[p.key];
             if (v !== undefined) return v;

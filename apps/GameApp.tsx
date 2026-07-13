@@ -791,7 +791,8 @@ ${playerContext}
 
                 if (Array.isArray(res.characters)) {
                     for (const charAct of res.characters) {
-                        const char = players.find(p => p.id === charAct.charId || p.name === charAct.charId);
+                        // 优先用 id 精确匹配，name 匹配仅兜底
+                        const char = players.find(p => p.id === charAct.charId) || players.find(p => p.name === charAct.charId);
                         if (char) {
                             initialLogs.push({
                                 id: `init-char-${char.id}`,
@@ -837,6 +838,7 @@ ${playerContext}
                 diceDisabled: newDiceDisabled,
                 archiveMode: newArchiveMode,
                 dmStyle: newDmStyle,
+                worldPacing,
                 ruleSystem: newRuleSystem,
                 diceConfig: newRuleSystem === 'freeform' ? newDiceConfig : undefined,
                 freeformSpecialSkills: newRuleSystem === 'freeform' && newFreeformSpecialSkills.length > 0 ? newFreeformSpecialSkills : undefined,
@@ -1124,7 +1126,11 @@ ${recentOoc}
 
     // --- Gameplay Logic ---
     const handleAction = async (actionText: string, isReroll: boolean = false) => {
-        if (!activeGame || !apiConfig.apiKey) return;
+        if (!activeGame || !apiConfig.apiKey || isTyping) return;
+        // 立即同步置位，堵住"点击后 setIsTyping(true) 真正生效前"那个窗口——
+        // 否则连续快速点击（比如双击发送）可能在按钮变灰之前就发出第二次调用。
+        setIsTyping(true);
+        const gameId = activeGame.id;
 
         let contextLogs = activeGame.logs;
         let updatedGame = activeGame;
@@ -1165,16 +1171,15 @@ ${recentOoc}
             userLogId = userLog.id;
 
             const updatedLogs = [...activeGame.logs, userLog];
-            updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now(), suggestedActions: [] }; // Clear options while thinking
-            setActiveGame(updatedGame);
+            updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now(), suggestedActions: [] };
+            // 函数式更新防止竞态（快速连点时 activeGame 可能已过期）
+            setActiveGame(prev => (prev?.id === gameId ? updatedGame : prev));
             await DB.saveGame(updatedGame);
             contextLogs = updatedLogs;
         }
 
         setUserInput('');
-        setIsTyping(true);
-        setLastTokenUsage(null);
-        addToast('GM 正在推演...', 'info'); // Feedback for Sync
+        addToast('GM 正在推演...', 'info');
 
         try {
             // 2. Build Context WITH RELATIONSHIP SYNC
@@ -1324,8 +1329,14 @@ ${buildGmStyleSection(dmStyle)}
             const newlyDeadIds: string[] = [];
             if (Array.isArray(res?.statusChanges)) {
                 for (const sc of res.statusChanges) {
-                    const matched = sc.charId === '__player__' ? '__player__' : players.find(p => p.id === sc.charId || p.name === sc.charId)?.id;
-                    if (!matched) continue;
+                    // 优先用 id 精确匹配，name 匹配仅兜底（防止角色改名后 AI 还用旧名导致匹配不到）
+                    const matched = sc.charId === '__player__'
+                        ? '__player__'
+                        : (players.find(p => p.id === sc.charId)?.id || players.find(p => p.name === sc.charId)?.id);
+                    if (!matched) {
+                        console.warn(`[GameApp] statusChanges 里的 charId="${sc.charId}" 匹配不到任何队友，已跳过`);
+                        continue;
+                    }
                     const prev = newVitals[matched];
                     let health = prev.health;
                     if (typeof sc.hpChange === 'number' && sc.hpChange) {
@@ -1350,8 +1361,14 @@ ${buildGmStyleSection(dmStyle)}
             const checkByCharId: Record<string, { skill?: string; success?: boolean; outcome?: string; tier?: CheckTier }> = {};
             if (Array.isArray(res?.checks)) {
                 for (const c of res.checks) {
-                    const matched = c.charId === '__player__' ? '__player__' : players.find(p => p.id === c.charId || p.name === c.charId)?.id;
-                    if (!matched) continue;
+                    // 优先用 id 精确匹配，name 匹配仅兜底（防止角色改名后 AI 还用旧名导致匹配不到）
+                    const matched = c.charId === '__player__'
+                        ? '__player__'
+                        : (players.find(p => p.id === c.charId)?.id || players.find(p => p.name === c.charId)?.id);
+                    if (!matched) {
+                        console.warn(`[GameApp] checks 里的 charId="${c.charId}" 匹配不到任何队友，已跳过`);
+                        continue;
+                    }
                     const roll = rollByCharId[matched];
                     if (roll === undefined || roll < 0) continue; // 没骰过的人不该出现在 checks 里，脏数据直接丢弃
 
@@ -1360,9 +1377,20 @@ ${buildGmStyleSection(dmStyle)}
                     const mechanical = computeCheckTier(ruleSystemDef, diceCfg, roll, skillValue, c.target);
                     const aiSuccess = c.success !== false;
                     if (aiSuccess !== mechanical.success) {
-                        throw new Error(`判定结果与骰点/数值算不上（${c.skill || '未知判定'}），请重新推演这一回合`);
+                        throw new Error(`AI 判定结果与骰点/数值不符（${c.skill || '未知判定'}），点击右下角 🔄 按钮重新生成`);
                     }
                     checkByCharId[matched] = { skill: c.skill, success: mechanical.success, outcome: c.outcome || mechanical.label, tier: mechanical.tier };
+                }
+            }
+
+            // 队友死亡通知（玩家死亡已经在下方 playerCanAct 那块有专门的 UI 旁观提示，不需要重复 toast）
+            if (newlyDeadIds.length > 0) {
+                const deadNames = newlyDeadIds
+                    .filter(id => id !== '__player__')
+                    .map(id => players.find(p => p.id === id)?.name || '队友')
+                    .filter(Boolean);
+                if (deadNames.length > 0) {
+                    addToast(`${deadNames.join('、')} 已死亡，永久离队`, 'error');
                 }
             }
 
@@ -1379,7 +1407,8 @@ ${buildGmStyleSection(dmStyle)}
 
                 if (Array.isArray(res.characters)) {
                     for (const charAct of res.characters) {
-                        const char = players.find(p => p.id === charAct.charId || p.name === charAct.charId);
+                        // 优先用 id 精确匹配，name 匹配仅兜底
+                        const char = players.find(p => p.id === charAct.charId) || players.find(p => p.name === charAct.charId);
                         if (char) {
                             const combinedContent = `*${charAct.action || ''}* \n"${charAct.dialogue || ''}"`;
                             const check = checkByCharId[char.id];
@@ -1434,8 +1463,8 @@ ${buildGmStyleSection(dmStyle)}
                 deadCharIds: newDeadCharIds,
                 suggestedActions: res?.suggested_actions || []
             };
-            
-            setActiveGame(finalGame);
+
+            setActiveGame(prev => (prev?.id === gameId ? finalGame : prev));
             await DB.saveGame(finalGame);
 
             // 回合结束后检查是否需要自动总结归档前文
@@ -2465,6 +2494,7 @@ ${logText}
                             )}
                         </div>
                         <div className="text-[10px] text-slate-400 mb-2">DM 风格：{DM_STYLE_META[activeGame.dmStyle || 'default'].label}（开团后不可更改）</div>
+                        <div className="text-[10px] text-slate-400 mb-2">叙事节奏：{(activeGame.worldPacing || 'crisis') === 'open' ? '开放式冒险' : '危机驱动'}（开团后不可更改）</div>
                         {showSheetsInMenu && activeGame.characterSheets && (
                             <div className="mb-3 space-y-1.5">
                                 {Object.values(activeGame.characterSheets).map(entry => (
@@ -2975,7 +3005,7 @@ ${logText}
                         placeholder="你打算做什么..."
                         className={`flex-1 bg-black/20 border ${theme.border} rounded-xl px-3 py-3 outline-none text-sm placeholder-opacity-30 placeholder-current resize-none h-12 leading-tight focus:bg-black/40 transition-colors`}
                     />
-                    <button onClick={() => handleAction(userInput)} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center`}>
+                    <button disabled={isTyping} onClick={() => handleAction(userInput)} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center disabled:opacity-40`}>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>
                     </button>
                 </div>

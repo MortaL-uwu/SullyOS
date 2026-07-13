@@ -2972,6 +2972,10 @@ export interface GameSession {
     dmStyle?: 'default' | 'comedy' | 'horror' | 'romance';
     // 规则系统：'freeform'（自由叙事，默认，兼容旧存档）| 'coc7' | 'dnd5e'
     ruleSystem?: 'freeform' | 'coc7' | 'dnd5e';
+    // 世界观生成时选的叙事节奏：'crisis'（危机驱动，默认）| 'open'（开放式冒险）。
+    // 只影响开团前世界观生成的 prompt，不参与后续每回合 GM 指令；存下来是为了让玩家在游玩中能回看当时选的是哪种。
+    // 旧存档无此字段按 'crisis' 处理（迁移前唯一存在的模式）。
+    worldPacing?: 'crisis' | 'open';
     // 自定义骰子机制（仅 freeform 可配，coc7/dnd5e 使用各自固定机制）
     diceConfig?: { count: number; sides: number; successMode: 'high-good' | 'low-good'; label: string };
     // 三种规则系统均可选启用：按本场剧本单独生成的逐角色属性/技能数值表，key 为 charId（玩家本人用 '__player__'）。
