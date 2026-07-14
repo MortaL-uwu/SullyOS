@@ -946,9 +946,13 @@ export const useChatAI = ({
             // 每次 onDelta 基于累计全文全量重算（safeFetchJson 重试会重开流，天然重置）；
             // 只有气泡数组真变了才 setState，部分行内增量不会触发重渲染。
             const streamPreviewEligible = !!userStream && !toolModeActive && !bilingualActive;
+            // 预览真的上过屏才置 true → 后处理落库时跳过拟人打字延迟（instantRender），
+            // 否则用户会看到"预览气泡收回去、再一条条慢慢重弹"的二次播放。
+            let streamPreviewShown = false;
             const streamHooks = streamPreviewEligible ? {
                 onDelta: (_delta: string, fullText: string) => {
                     const bubbles = computeStreamPreviewBubbles(fullText);
+                    if (bubbles.length > 0) streamPreviewShown = true;
                     setStreamingBubbles(prev =>
                         (prev.length === bubbles.length && prev.every((b, i) => b === bubbles[i])) ? prev : bubbles
                     );
@@ -1407,6 +1411,8 @@ export const useChatAI = ({
                     // instant push 路径 (activeMsgRuntime) 共享同一份, 见 MusicContext.loadMusicHooks.
                     musicHooks: loadMusicHooks() ?? undefined,
                 },
+                // 流式预览已把气泡展示过 → 落库免打字延迟，秒回填（未预览时行为不变）
+                instantRender: streamPreviewShown,
                 // Phase 0: 本地 fetch 路径保持原逻辑, 不跳 2nd-pass LLM, 也没有结构化 directives。
                 skipSecondPassLLM: false,
                 directives: [],
