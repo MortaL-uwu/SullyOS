@@ -751,11 +751,11 @@ export const useChatAI = ({
                     ? char.emotionConfig!.api!
                     : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model })
                 : null;
-            // 本地路径的情绪评估不再在这里立刻发射，改为「主回复响应到达后」再发（见下方
-            // API call 之后的 fireLocalEmotionEval 调用点）。原因（2026-07 实测日志）：
-            // 便宜中转普遍按 key 串行/低并发，评估这个同样几万 token 的大请求若先入队，
-            // 主回复会被压后整整一个评估时长（headers 从 ~10s 恶化到 34s，评估恰好跑了 30s）。
-            // 评估结果本来就只作用于下一轮，晚发不损失任何质量，只是 buff 徽标晚亮几十秒。
+            // 本地路径的情绪评估不在这里立刻发射，改为「主请求发出 ~1.5s 后」再发（见下方
+            // 主 fetch 前的 setTimeout）。原因（2026-07 实测日志）：便宜中转普遍按 key 串行/
+            // 低并发，评估这个同样几万 token 的大请求和主回复同时发射时谁先入队是随机的——
+            // 评估抢跑那几轮，主回复 headers 从 ~10s 恶化到 34s（被压后整整一个评估时长）。
+            // 错开 1.5s 保证主回复永远先到中转队列；评估结果只作用于下一轮，晚这一点零损失。
             // instant 模式不受影响：worker 端本来就是主回复跑完才跑评估（天然串行）。
             const fireLocalEmotionEval = (emotionEvalEnabled && !instantOn && emotionApi) ? () => {
                 setEmotionStatus('evaluating');
@@ -951,6 +951,10 @@ export const useChatAI = ({
                 },
             } : undefined;
 
+            // 主请求即将发出 → 1.5s 后发射情绪评估（保证主回复先进中转队列，见上方定义处注释）。
+            // 不随主请求失败取消：旧行为里评估本来就无条件发射，保持一致。
+            if (fireLocalEmotionEval) setTimeout(fireLocalEmotionEval, 1500);
+
             let data: any;
             try {
                 data = await safeFetchJson(`${baseUrl}/chat/completions`, {
@@ -973,10 +977,6 @@ export const useChatAI = ({
             }
             console.log(`⏱ [API call] ${Math.round(performance.now() - apiT0)}ms`);
             updateTokenUsage(data, historyMsgCount, 'initial');
-
-            // 主回复已到手 → 现在才发情绪评估，不和主回复抢中转的并发位（见上方定义处注释）。
-            // 评估输入不含本轮新回复（与旧行为一致），只是发射时机后移。
-            fireLocalEmotionEval?.();
 
             // MCP 多阶段展示：工具前的角色文字先落库，最终工具结果回复仍走统一后处理。
             const displayedMcpLeadIns = new Set<string>();
