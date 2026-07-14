@@ -98,6 +98,7 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                     <p>
                         「实际后端」是这次请求<span className="font-semibold">响应里自报的模型身份</span>（response.model 字段，以前要开 F12 才能看到）。
                         和你请求的模型名对不上（剥掉 [渠道] 前缀后核心名不同）时会琥珀色 ⚠️ 标出；中转正常剥前缀不算异常，灰色显示。
+                        <span className="font-semibold">没有这一行</span>＝后端自报名与请求名完全一致（纯回显，无信息量），或该次响应没带 model 字段（部分渠道的流式分片不带；功能上线前的旧记录也没有）——这是最常见的正常状态。
                     </p>
                     <p>
                         <span className="font-semibold text-amber-700">⚠️ 重要：这个名字是中转/上游自己填的一个字符串。</span>

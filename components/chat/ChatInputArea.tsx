@@ -576,7 +576,9 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             )}
 
                             <div className="flex-1 overflow-y-auto no-scrollbar p-4">
-                                <div className="grid grid-cols-4 gap-3">
+                                {/* 4 列 → 5 列：面板缩略图整体缩小一档（吸收社区美化的共识密度）。
+                                    已用自定义 CSS（.sully-chat-panel button img 定宽 !important）的用户不受影响。 */}
+                                <div className="grid grid-cols-5 gap-2">
                                     {emojiSelectionMode ? (
                                         <button 
                                             onClick={() => {
@@ -613,7 +615,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                             className={`${emojiTileClass} ${isSelected ? '!border-blue-500' : ''}`}
                                         >
                                             <div className="aspect-square w-full">
-                                                <img src={e.url} loading="lazy" decoding="async" className="w-full h-full object-contain pointer-events-none" />
+                                                <img src={e.url} loading="lazy" decoding="async" className="sully-emoji-thumb w-full h-full object-contain pointer-events-none" />
                                             </div>
                                             <span className={`text-[9px] truncate w-full text-center mt-0.5 leading-tight pointer-events-none ${emojiLabelClass}`}>{e.name}</span>
                                             {isSelected && <div className="absolute inset-0 bg-blue-500/20 rounded-2xl pointer-events-none border-2 border-blue-500" />}
