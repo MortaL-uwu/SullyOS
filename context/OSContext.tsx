@@ -18,6 +18,7 @@ import { migrateWorldDaySegs } from '../utils/worldHome/prompts';
 import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { recordApiCall, setApiCallAmbientContext } from '../utils/apiCallLog';
+import { isGlobalStreamEnabled, upgradeChatBodyToStream, assembleUpgradedResponse } from '../utils/streamUpgrade';
 import { rewriteStaleWorkerUrl } from '../utils/proxyWorker';
 import { INSTALLED_APPS } from '../constants';
 import { markBackupDone } from '../utils/backupReminder';
@@ -817,14 +818,31 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // 某些模型废弃了 temperature/top_p/top_k，带上直接 400。这里在所有 /chat/completions
           // 的统一出口做发送前主动摘除，覆盖 Schedule / 记忆 / 见面等全部旁路调用点。
           let sendArgs: [RequestInfo | URL, RequestInit?] = args;
+          // 透明流式升级状态（utils/streamUpgrade.ts）：请求侧改写 → 响应侧拼回 JSON
+          let streamUpgraded = false;
+          let bodyBeforeStreamUpgrade: string | null = null;
           if (urlStr.includes('/chat/completions')) {
               const rawBody = (config as RequestInit | undefined)?.body;
               if (typeof rawBody === 'string') {
                   try {
                       const parsed = JSON.parse(rawBody);
+                      let body = rawBody;
                       if (modelRejectsSamplingParams(parsed?.model) && stripSamplingParams(parsed)) {
-                          sendArgs = [resource, { ...(config as RequestInit), body: JSON.stringify(parsed) }];
+                          body = JSON.stringify(parsed);
                       }
+                      // 透明流式升级：主 API 开了 stream 时，把硬编码非流式的旁路调用
+                      // （查手机/记忆宫殿/日程/剧场/群聊…40+ 处）升级为流式**传输**，防网关
+                      // 空闲超时把长生成掐成半截；响应会在下面攒齐拼回标准 JSON，调用方无感。
+                      // 已自带 stream:true 的请求（聊天主路径/见面/情绪评估）不碰。
+                      if (isGlobalStreamEnabled()) {
+                          const upgraded = upgradeChatBodyToStream(body);
+                          if (upgraded) {
+                              bodyBeforeStreamUpgrade = body;
+                              body = upgraded;
+                              streamUpgraded = true;
+                          }
+                      }
+                      if (body !== rawBody) sendArgs = [resource, { ...(config as RequestInit), body }];
                   } catch { /* 非 JSON body：原样放行 */ }
               }
           }
@@ -848,6 +866,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           } catch { /* 解析失败：保留原始 400 响应 */ }
                       }
                   }
+              }
+
+              // 流式升级自愈：个别中转对 stream/stream_options 直接 4xx → 用升级前的
+              // 原 body 重发一次，行为退回旧版（升级只能赚不能赔）。
+              if (streamUpgraded && !response.ok && (response.status === 400 || response.status === 422) && bodyBeforeStreamUpgrade) {
+                  console.warn('🔁 [StreamUpgrade] 中转拒绝流式升级(HTTP ' + response.status + ')，回退原请求重发');
+                  response = await originalFetch(resource, { ...(config as RequestInit), body: bodyBeforeStreamUpgrade });
+                  streamUpgraded = false;
+              }
+              // 流式升级的响应归一化：SSE 攒齐拼回标准 chat.completion JSON——
+              // 调用方（safeResponseJson / res.json() 均可）拿到与升级前等价的响应。
+              if (streamUpgraded && response.ok) {
+                  response = await assembleUpgradedResponse(response);
               }
 
               const durationMs = Date.now() - fetchStartedAt;

@@ -72,7 +72,7 @@ function parseRawBodyText(text: string, status: number): any {
  * 返回 { choices: [{ message: { content, role }, finish_reason }], ... } 方便上游
  * 用现有的 data.choices[0].message.content 路径消费，无需改调用点。
  */
-function parseSseToCompletion(raw: string): any | null {
+export function parseSseToCompletion(raw: string): any | null {
     const asm = new SseAssembler();
     // 按行切，逐行找 "data: " 开头（允许 \r\n、空行分隔）
     for (const line of raw.split(/\r?\n/)) asm.feedLine(line);
