@@ -95,6 +95,22 @@ export interface OSTheme {
   /** 聊天表情包大小三挡：小 96px（默认）/ 中 128px / 大 160px（旧版尺寸）。经 --sully-emoji-size CSS 变量生效 */
   chatEmojiSize?: 'small' | 'medium' | 'large';
   chatAvatarMode?: 'grouped' | 'every_message';
+  // ── 聊天细节微调（外观 → 聊天细节）。收编自社区白框美化 CSS，全部可选，缺省 = 现状。
+  //    经 utils/chatFineTuneCss.ts 生成 CSS 注入 .sully-chat-root；用户自定义白框 CSS 排在其后可覆盖。
+  /** 头像显示：双侧 / 隐藏角色侧 / 隐藏用户侧 / 全部隐藏 */
+  chatAvatarVisibility?: 'both' | 'hide_ai' | 'hide_user' | 'hide_both';
+  /** 头像与气泡的对齐：底部（默认）/ 顶部 / 垂直居中 */
+  chatAvatarAlign?: 'bottom' | 'top' | 'center';
+  /** 头像垂直微调 px（负上正下），0/undefined = 不调 */
+  chatAvatarOffsetY?: number;
+  /** 气泡正文字号 px，0/undefined = 默认 */
+  chatBubbleFontSize?: number;
+  /** 气泡正文行距（如 1.35），0/undefined = 默认 */
+  chatBubbleLineHeight?: number;
+  /** 气泡与头像侧的间距 px，0/undefined = 默认（48px） */
+  chatBubbleIndent?: number;
+  /** 隐藏头像的一侧是否贴边（收回头像空位） */
+  chatSnapToEdge?: boolean;
   chatBubbleStyle?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
   chatMessageSpacing?: 'compact' | 'default' | 'spacious';
   chatShowTimestamp?: 'always' | 'hover' | 'never';

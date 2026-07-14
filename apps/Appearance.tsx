@@ -139,6 +139,8 @@ const CHAT_LAYOUT_COMBOS: { name: string; desc: string; config: Partial<OSTheme>
     { name: '微信风格', desc: '方形头像+扁平气泡', config: { chatAvatarShape: 'square', chatAvatarSize: 'medium', chatBubbleStyle: 'flat', chatMessageSpacing: 'default', chatHeaderStyle: 'default', chatInputStyle: 'flat', chatShowTimestamp: 'always' } },
     { name: 'iMessage', desc: '大圆头像+宽松气泡', config: { chatAvatarShape: 'circle', chatAvatarSize: 'large', chatBubbleStyle: 'modern', chatMessageSpacing: 'spacious', chatHeaderStyle: 'minimal', chatInputStyle: 'rounded', chatShowTimestamp: 'always' } },
     { name: '简约模式', desc: '小头像+最简界面', config: { chatAvatarShape: 'circle', chatAvatarSize: 'small', chatBubbleStyle: 'flat', chatMessageSpacing: 'compact', chatHeaderStyle: 'minimal', chatInputStyle: 'flat', chatShowTimestamp: 'never' } },
+    { name: '沉浸剧场', desc: '无头像+贴边+松行距', config: { chatAvatarShape: 'circle', chatAvatarSize: 'medium', chatBubbleStyle: 'flat', chatMessageSpacing: 'spacious', chatHeaderStyle: 'minimal', chatInputStyle: 'flat', chatShowTimestamp: 'never', chatAvatarVisibility: 'hide_both', chatSnapToEdge: true, chatBubbleLineHeight: 1.5 } },
+    { name: '紧凑密聊', desc: '小字紧排+顶对齐头像', config: { chatAvatarShape: 'rounded', chatAvatarSize: 'small', chatBubbleStyle: 'flat', chatMessageSpacing: 'compact', chatHeaderStyle: 'default', chatInputStyle: 'flat', chatShowTimestamp: 'never', chatAvatarVisibility: 'both', chatAvatarAlign: 'top', chatBubbleFontSize: 13, chatBubbleLineHeight: 1.35 } },
 ];
 
 // --- 桌面整机风格（皮肤）---
@@ -253,6 +255,13 @@ const ChatAppearanceEditor: React.FC<{ theme: OSTheme; updateTheme: (u: Partial<
     const headerStyle = theme.chatHeaderStyle || 'default';
     const inputStyle = theme.chatInputStyle || 'default';
     const showTimestamp = theme.chatShowTimestamp || 'always';
+    // 聊天细节微调 → 预览联动（近似演示：字号按比例缩小 3px 以配合迷你预览）
+    const fineVis = theme.chatAvatarVisibility || 'both';
+    const previewAlignClass = (theme.chatAvatarAlign || 'bottom') === 'top' ? 'items-start' : theme.chatAvatarAlign === 'center' ? 'items-center' : 'items-end';
+    const previewTextStyle: React.CSSProperties = {
+        ...(theme.chatBubbleFontSize ? { fontSize: `${Math.max(9, theme.chatBubbleFontSize - 3)}px` } : {}),
+        ...(theme.chatBubbleLineHeight ? { lineHeight: theme.chatBubbleLineHeight } : {}),
+    };
 
     const OptionButton: React.FC<{ active: boolean; label: string; desc?: string; onClick: () => void }> = ({ active, label, desc, onClick }) => (
         <button onClick={onClick}
@@ -270,7 +279,9 @@ const ChatAppearanceEditor: React.FC<{ theme: OSTheme; updateTheme: (u: Partial<
                 <p className="text-[10px] text-slate-400 mb-3">一键切换聊天界面风格组合，包含头像、气泡、间距等全套配置。</p>
                 <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
                     {CHAT_LAYOUT_COMBOS.map(combo => (
-                        <button key={combo.name} onClick={() => updateTheme(combo.config)}
+                        // 先铺一层细节微调的默认值再叠预设：否则从「沉浸剧场」切回其他预设时
+                        // 隐藏头像/贴边等残留字段不会被清掉（旧预设没写这些键）
+                        <button key={combo.name} onClick={() => updateTheme({ chatAvatarVisibility: 'both', chatSnapToEdge: false, chatAvatarAlign: 'bottom', chatAvatarOffsetY: 0, chatBubbleFontSize: 0, chatBubbleLineHeight: 0, chatBubbleIndent: 0, ...combo.config })}
                             className="shrink-0 px-4 py-2.5 bg-slate-50 rounded-xl border border-slate-200 hover:border-primary/40 active:scale-95 transition-all text-left">
                             <div className="text-xs font-bold text-slate-700">{combo.name}</div>
                             <div className="text-[9px] text-slate-400 mt-0.5">{combo.desc}</div>
@@ -294,21 +305,26 @@ const ChatAppearanceEditor: React.FC<{ theme: OSTheme; updateTheme: (u: Partial<
                     {/* Fake messages */}
                     <div className={`p-3 space-y-${msgSpacing === 'compact' ? '1' : msgSpacing === 'spacious' ? '4' : '2'}`}>
                         {/* AI message */}
-                        <div className="flex gap-2 items-end">
-                            <div className={`${AVATAR_SIZES.find(s => s.value === avatarSize)?.size || 'w-9 h-9'} ${AVATAR_SHAPES.find(s => s.value === avatarShape)?.preview || 'rounded-full'} bg-pink-200 shrink-0`} />
-                            <div className={`px-3 py-2 text-[11px] max-w-[65%] ${bubbleStyle === 'outline' ? 'bg-transparent border-2 border-slate-300 rounded-2xl rounded-bl-sm' : bubbleStyle === 'shadow' ? 'bg-white shadow-md rounded-2xl rounded-bl-sm' : bubbleStyle === 'flat' ? 'bg-slate-100 rounded-2xl rounded-bl-sm' : 'bg-white/90 backdrop-blur-sm rounded-2xl rounded-bl-sm shadow-sm'}`}>
+                        <div className={`flex gap-2 ${previewAlignClass}`}>
+                            {fineVis !== 'hide_ai' && fineVis !== 'hide_both' && (
+                                <div className={`${AVATAR_SIZES.find(s => s.value === avatarSize)?.size || 'w-9 h-9'} ${AVATAR_SHAPES.find(s => s.value === avatarShape)?.preview || 'rounded-full'} bg-pink-200 shrink-0`} />
+                            )}
+                            <div className={`px-3 py-2 text-[11px] max-w-[65%] ${bubbleStyle === 'outline' ? 'bg-transparent border-2 border-slate-300 rounded-2xl rounded-bl-sm' : bubbleStyle === 'shadow' ? 'bg-white shadow-md rounded-2xl rounded-bl-sm' : bubbleStyle === 'flat' ? 'bg-slate-100 rounded-2xl rounded-bl-sm' : 'bg-white/90 backdrop-blur-sm rounded-2xl rounded-bl-sm shadow-sm'}`}
+                                style={previewTextStyle}>
                                 你好呀，今天过得怎么样？
                                 {showTimestamp === 'always' && <div className="text-[8px] text-slate-300 mt-1 text-right">14:32</div>}
                             </div>
                         </div>
                         {/* User message */}
-                        <div className="flex gap-2 items-end justify-end">
+                        <div className={`flex gap-2 ${previewAlignClass} justify-end`}>
                             <div className={`px-3 py-2 text-[11px] text-white max-w-[65%] ${bubbleStyle === 'outline' ? 'bg-transparent border-2 border-primary text-primary rounded-2xl rounded-br-sm' : bubbleStyle === 'shadow' ? 'bg-primary shadow-md rounded-2xl rounded-br-sm' : bubbleStyle === 'flat' ? 'bg-primary rounded-2xl rounded-br-sm' : 'bg-primary/90 backdrop-blur-sm rounded-2xl rounded-br-sm shadow-sm'}`}
-                                style={bubbleStyle === 'outline' ? { color: `hsl(${theme.hue}, ${theme.saturation}%, ${theme.lightness}%)` } : undefined}>
+                                style={{ ...(bubbleStyle === 'outline' ? { color: `hsl(${theme.hue}, ${theme.saturation}%, ${theme.lightness}%)` } : {}), ...previewTextStyle }}>
                                 挺好的，今天天气不错！
                                 {showTimestamp === 'always' && <div className={`text-[8px] mt-1 text-right ${bubbleStyle === 'outline' ? 'opacity-50' : 'text-white/60'}`}>14:33</div>}
                             </div>
-                            <div className={`${AVATAR_SIZES.find(s => s.value === avatarSize)?.size || 'w-9 h-9'} ${AVATAR_SHAPES.find(s => s.value === avatarShape)?.preview || 'rounded-full'} bg-primary/30 shrink-0`} />
+                            {fineVis !== 'hide_user' && fineVis !== 'hide_both' && (
+                                <div className={`${AVATAR_SIZES.find(s => s.value === avatarSize)?.size || 'w-9 h-9'} ${AVATAR_SHAPES.find(s => s.value === avatarShape)?.preview || 'rounded-full'} bg-primary/30 shrink-0`} />
+                            )}
                         </div>
                     </div>
                     {/* Fake input */}
@@ -347,6 +363,76 @@ const ChatAppearanceEditor: React.FC<{ theme: OSTheme; updateTheme: (u: Partial<
                     ))}
                 </div>
                 <p className="text-[11px] text-slate-400 mt-2">聊天和群聊里发出的表情包图片尺寸。用自定义 CSS 调过尺寸的美化会继续覆盖这里的设置。</p>
+            </section>
+
+            {/* Chat Fine-tune —— 收编社区白框美化的可视化版 */}
+            <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+                <div>
+                    <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">聊天细节微调</h2>
+                    <p className="text-[11px] text-slate-400 mt-1">头像显隐/对齐、贴边、字号行距——不用再手写 CSS。手写过美化代码的用户不受影响（自定义 CSS 优先级更高）。</p>
+                </div>
+                <div>
+                    <h3 className="text-[11px] font-bold text-slate-500 mb-2">头像分组</h3>
+                    <div className="flex gap-2 flex-wrap">
+                        <OptionButton active={(theme.chatAvatarMode || 'grouped') === 'grouped'} label="连续消息折叠" desc="组内只显一条" onClick={() => updateTheme({ chatAvatarMode: 'grouped' })} />
+                        <OptionButton active={theme.chatAvatarMode === 'every_message'} label="每条都显示" onClick={() => updateTheme({ chatAvatarMode: 'every_message' })} />
+                    </div>
+                </div>
+                <div>
+                    <h3 className="text-[11px] font-bold text-slate-500 mb-2">头像显示</h3>
+                    <div className="flex gap-2 flex-wrap">
+                        {([['both', '全部显示'], ['hide_ai', '隐藏角色侧'], ['hide_user', '隐藏我的'], ['hide_both', '全部隐藏']] as const).map(([v, label]) => (
+                            <OptionButton key={v} active={(theme.chatAvatarVisibility || 'both') === v} label={label} onClick={() => updateTheme({ chatAvatarVisibility: v })} />
+                        ))}
+                    </div>
+                    {(theme.chatAvatarVisibility || 'both') !== 'both' && (
+                        <label className="flex items-center gap-2 mt-2 text-[11px] text-slate-500">
+                            <input type="checkbox" checked={!!theme.chatSnapToEdge} onChange={(e) => updateTheme({ chatSnapToEdge: e.target.checked })} className="accent-current" />
+                            隐藏的一侧气泡贴边（收回头像空位）
+                        </label>
+                    )}
+                </div>
+                <div>
+                    <h3 className="text-[11px] font-bold text-slate-500 mb-2">头像对齐气泡</h3>
+                    <div className="flex gap-2 flex-wrap">
+                        {([['bottom', '底部（默认）'], ['top', '顶部'], ['center', '垂直居中']] as const).map(([v, label]) => (
+                            <OptionButton key={v} active={(theme.chatAvatarAlign || 'bottom') === v} label={label} onClick={() => updateTheme({ chatAvatarAlign: v })} />
+                        ))}
+                    </div>
+                    <div className="flex items-center gap-3 mt-2">
+                        <span className="text-[11px] text-slate-500 shrink-0">垂直微调</span>
+                        <input type="range" min={-16} max={16} step={2} value={theme.chatAvatarOffsetY || 0}
+                            onChange={(e) => updateTheme({ chatAvatarOffsetY: Number(e.target.value) })} className="flex-1 accent-current" />
+                        <span className="text-[11px] font-mono text-slate-500 w-10 text-right">{theme.chatAvatarOffsetY || 0}px</span>
+                    </div>
+                </div>
+                <div>
+                    <h3 className="text-[11px] font-bold text-slate-500 mb-2">气泡正文字号</h3>
+                    <div className="flex gap-2 flex-wrap">
+                        <OptionButton active={!theme.chatBubbleFontSize} label="默认" onClick={() => updateTheme({ chatBubbleFontSize: 0 })} />
+                        {[12, 13, 14, 15, 16].map(v => (
+                            <OptionButton key={v} active={theme.chatBubbleFontSize === v} label={`${v}px`} onClick={() => updateTheme({ chatBubbleFontSize: v })} />
+                        ))}
+                    </div>
+                </div>
+                <div>
+                    <h3 className="text-[11px] font-bold text-slate-500 mb-2">气泡正文行距</h3>
+                    <div className="flex gap-2 flex-wrap">
+                        <OptionButton active={!theme.chatBubbleLineHeight} label="默认" onClick={() => updateTheme({ chatBubbleLineHeight: 0 })} />
+                        {[1.2, 1.35, 1.5, 1.7].map(v => (
+                            <OptionButton key={v} active={theme.chatBubbleLineHeight === v} label={String(v)} onClick={() => updateTheme({ chatBubbleLineHeight: v })} />
+                        ))}
+                    </div>
+                </div>
+                <div>
+                    <h3 className="text-[11px] font-bold text-slate-500 mb-2">气泡与头像间距</h3>
+                    <div className="flex gap-2 flex-wrap">
+                        <OptionButton active={!theme.chatBubbleIndent} label="默认 (48px)" onClick={() => updateTheme({ chatBubbleIndent: 0 })} />
+                        {[28, 60, 72].map(v => (
+                            <OptionButton key={v} active={theme.chatBubbleIndent === v} label={`${v}px`} onClick={() => updateTheme({ chatBubbleIndent: v })} />
+                        ))}
+                    </div>
+                </div>
             </section>
 
             {/* Bubble Style */}

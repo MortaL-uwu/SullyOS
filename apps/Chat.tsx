@@ -5,6 +5,7 @@ import { DB } from '../utils/db';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
 import { processImage } from '../utils/file';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
+import { buildChatFineTuneCss } from '../utils/chatFineTuneCss';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { generateSlotTheater } from '../utils/theaterGenerator';
 import TheaterPlayer from '../components/schedule/TheaterPlayer';
@@ -2515,6 +2516,8 @@ const Chat: React.FC = () => {
     // 动森下强制覆盖角色自定义聊天背景，保证整机一致的彩蛋观感
     // 进入/切换的过场由 CharacterEntryTransition 覆盖层负责，根容器不再自己做淡入。
     const finalRootStyle = acnh ? acnhRootStyle : chatRootStyle;
+    // 聊天细节微调 CSS（外观 → 聊天细节）：全默认时为空串，不注入任何 <style>
+    const chatFineTuneCss = useMemo(() => buildChatFineTuneCss(osTheme), [osTheme]);
     const chatAvatarSizeClass = osTheme.chatAvatarSize === 'small' ? 'w-7 h-7' : osTheme.chatAvatarSize === 'large' ? 'w-12 h-12' : 'w-9 h-9';
     const chatAvatarRadiusClass = osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
     const chatPendingAvatarClass = `${chatAvatarSizeClass} ${chatAvatarRadiusClass} object-cover`;
@@ -2524,6 +2527,9 @@ const Chat: React.FC = () => {
             className={`sully-chat-root ${finalRootClass}`}
             style={finalRootStyle}
         >
+             {/* 聊天细节微调（外观 App 可视化设置生成）：排在用户自定义 CSS 之前——
+                 同为 !important 时后写的胜，手写美化代码永远可覆盖可视化设置。 */}
+             {chatFineTuneCss && <style>{chatFineTuneCss}</style>}
              {/* 白框自定义 CSS：全局默认在前、角色专属在后（后者叠加覆盖）。作用于 .sully-chat-* 各零件。
                  守护样式统一放在气泡主题 customCss 之后（见下），保证对所有用户 CSS 都能兜底。 */}
              {osTheme.chatChromeCustomCss && <style>{osTheme.chatChromeCustomCss}</style>}
