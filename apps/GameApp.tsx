@@ -7,10 +7,10 @@ import { ContextBuilder } from '../utils/context';
 import { extractContent, extractJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { ChatParser } from '../utils/chatParser';
-import { RuleSystemId, DiceConfig, RULE_SYSTEMS, RULE_SYSTEM_LIST, DICE_PRESETS, DEFAULT_DICE_CONFIG, FREEFORM_BASIC_SKILLS, rollDice, rollFlavorFor, formatCharacterSheetsBlock, buildCharacterSheetPrompt, buildFreeformCharacterSheetPrompt, computeCheckTier, findSkillValueByName, CheckTier, CHECK_TIER_LABELS, getCharacterVitals, computeVitalState, computeSanState, VITAL_STATE_LABELS, SAN_STATE_LABELS, VitalState, SanState } from '../utils/trpgRuleSystems';
+import { RuleSystemId, DiceConfig, RULE_SYSTEMS, RULE_SYSTEM_LIST, DICE_PRESETS, DEFAULT_DICE_CONFIG, FREEFORM_BASIC_SKILLS, rollDice, rollFlavorFor, toCocPercentile, buildCheckOutcomePreview, formatCharacterSheetsBlock, buildCharacterSheetPrompt, buildFreeformCharacterSheetPrompt, computeCheckTier, findSkillValueByName, CheckTier, CHECK_TIER_LABELS, getCharacterVitals, computeVitalState, computeSanState, VITAL_STATE_LABELS, SAN_STATE_LABELS, VitalState, SanState } from '../utils/trpgRuleSystems';
 import Modal from '../components/os/Modal';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
-import { Planet, RocketLaunch, Lightning, LockSimple, DiceFive, Toolbox, FloppyDisk, ArrowsClockwise, DoorOpen, IdentificationCard, Eye, ChatCircleDots, SkullIcon } from '@phosphor-icons/react';
+import { Planet, RocketLaunch, Lightning, LockSimple, DiceFive, Toolbox, FloppyDisk, ArrowsClockwise, DoorOpen, IdentificationCard, Eye, SkullIcon } from '@phosphor-icons/react';
 
 // --- Themes Configuration (Enhanced) ---
 const GAME_THEMES: Record<GameTheme, { bg: string, text: string, accent: string, font: string, border: string, cardBg: string, gradient: string, optionNormal: string, optionChaotic: string, optionEvil: string }> = {
@@ -1288,7 +1288,7 @@ ${recentOoc}
                 setLastRoll(currentRoll);
                 partyRolls = players.filter(p => getVitals(p.id).health > 0).map(p => ({ id: p.id, name: p.name, roll: rollDice(diceCfg) }));
                 const rollSummary = [`${userProfile.name}:${currentRoll}`, ...partyRolls.map(r => `${r.name}:${r.roll}`)].join(' / ');
-                addToast(`${diceCfg.label} 判定 → ${rollSummary}`, 'info');
+                addToast(`全员已骰点 → ${rollSummary}`, 'info');
             }
 
             // Standard Action: Append user log
@@ -1304,16 +1304,17 @@ ${recentOoc}
             if (currentRoll !== null) setPendingRollLogId(userLogId);
 
             const updatedLogs = [...activeGame.logs, userLog];
-            updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now(), suggestedActions: [] };
+            // 队友骰点跟玩家动作同一时刻落库（pendingPartyRolls），这样 reroll 才能原样复用同一批数字，
+            // 不用"每次重roll队友都换新点数"这种奇怪的体验——玩家自己的骰点已经存在 userLog.diceRoll 里了。
+            updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now(), suggestedActions: [], pendingPartyRolls: currentRoll !== null ? partyRolls : undefined };
             // 函数式更新防止竞态（快速连点时 activeGame 可能已过期）
             setActiveGame(prev => (prev?.id === gameId ? updatedGame : prev));
             await DB.saveGame(updatedGame);
             contextLogs = updatedLogs;
         } else {
-            // 重新推演（多为"AI 判定结果与骰点/数值不符"报错后点右下角按钮）：
-            // 玩家本人的骰点必须原样保留（不能悄悄换一个新数字再判一次），从上一条 player/system log 里找回来；
-            // 队友的骰点在上次失败的那轮从没存档过（报错发生在角色发言生成之前），只能重投一次——
-            // 这不影响体验，因为上次失败的队友骰点本来就没在气泡里展示过。
+            // 重新推演：玩家和队友本回合的骰点都必须原样保留（不能悄悄换一批新数字再判一次）——
+            // 玩家的从上一条 player/system log 的 diceRoll 里找回来，队友的从存档的 pendingPartyRolls 里找回来。
+            // 兜底：老存档没有 pendingPartyRolls 字段时才重投一次，避免直接崩掉。
             const lastActionLog = [...contextLogs].reverse().find(l => l.role === 'player' || l.role === 'system');
             if (lastActionLog) {
                 userLogId = lastActionLog.id;
@@ -1321,9 +1322,8 @@ ${recentOoc}
                     currentRoll = lastActionLog.diceRoll.result;
                     setPendingRollLogId(userLogId);
                     if (!activeGame.diceDisabled) {
-                        partyRolls = players.filter(p => getVitals(p.id).health > 0).map(p => ({ id: p.id, name: p.name, roll: rollDice(diceCfg) }));
-                        const rollSummary = partyRolls.map(r => `${r.name}:${r.roll}`).join(' / ');
-                        if (rollSummary) addToast(`队友重新判定 → ${rollSummary}`, 'info');
+                        partyRolls = activeGame.pendingPartyRolls
+                            ?? players.filter(p => getVitals(p.id).health > 0).map(p => ({ id: p.id, name: p.name, roll: rollDice(diceCfg) }));
                     }
                 }
             }
@@ -1381,11 +1381,17 @@ ${recentOoc}
             const dmStyle: DmStyle = activeGame.dmStyle || 'default';
             // [新] 全员先骰后判：本回合每个人（玩家+全体队友）都已经先投好了骰子，具体哪些点数真正构成一次检定、
             // 用哪个技能裁定，交给这同一次生成来决定——省掉一次单独"是否需要判定"的预调用。
-            const partyRollLines = [
-                `${userProfile.name}: ${currentRoll}（${rollFlavorFor(diceCfg, currentRoll ?? 0)}）`,
-                ...partyRolls.map(r => `${r.name}: ${r.roll}（${rollFlavorFor(diceCfg, r.roll)}）`)
-            ].join('\n- ');
             const isDnd = (activeGame.ruleSystem || 'freeform') === 'dnd5e';
+            // dnd5e 用原始骰子点数（点数越高越好，跟属性加值直接相加比 DC，DC 必须由 AI 判断，没法穷举）；
+            // freeform/coc7 没有 DC，成败是确定的算术题——直接把这个人每项技能对应的判定结果都提前算好
+            // 摆出来（buildCheckOutcomePreview），AI 只需要挑技能抄结果，不再自己比较骰点和数值。
+            const describeRoll = (id: string, name: string, roll: number) => isDnd
+                ? `${name}: ${roll}（${rollFlavorFor(diceCfg, roll)}）`
+                : `${name}: ${buildCheckOutcomePreview(ruleSystemDef, diceCfg, roll, activeGame.characterSheets?.[id])}`;
+            const partyRollLines = [
+                describeRoll('__player__', userProfile.name, currentRoll ?? 0),
+                ...partyRolls.map(r => describeRoll(r.id, r.name, r.roll))
+            ].join('\n- ');
             const rollInstruction = currentRoll
                 ? `\n### 本回合判定\n本回合所有人都先投好了一次 ${diceCfg.label}（不代表都要用，是否采纳由你判断）：\n- ${partyRollLines}\n\n${ruleSystemDef.checkInstruction({ hasSheet })}\n**判定采纳规则（重要）**：不是每个人的骰点都要用——只有当某个角色本回合的行动/发言构成一次**有实际风险或冲突的尝试**（如说服、潜行、战斗、体能挑战、关键社交博弈）时，才把 TA 对应的骰点当作一次正式检定来裁定成败；纯叙事性动作（走路、闲聊、观察无风险场景）不需要判定，直接顺其自然描写，对应骰点忽略不用即可。如果本回合出现明显的冲突/对抗事件，请优先针对冲突双方或关键行动方进行判定。请把你实际采纳为检定的每一项，按输出格式里的 \`checks\` 数组给出：说明用的是谁的骰点、判定用了哪个技能/属性${isDnd ? '、这次检定的难度等级(DC)' : ''}、是否成功、以及简短的结果代价；没被采纳为检定的人不需要出现在 \`checks\` 里。\n`
                 : (activeGame.diceDisabled
@@ -1507,8 +1513,10 @@ ${buildGmStyleSection(dmStyle)}
             const rollByCharId: Record<string, number> = { __player__: currentRoll ?? -1 };
             for (const r of partyRolls) rollByCharId[r.id] = r.roll;
             // AI 在写剧情的同时也顺手把成败算了一遍（它手上有骰点+数值，这一步只是算术）。
-            // 但存档/UI 展示的判定结果不采信 AI 自报的成败——用同样的骰点+角色数值+（DnD的）DC 机械重算一遍作为权威结果；
-            // 如果两者对不上（AI 算错了），直接报错让这一回合作废，用户重新推演即可，不把不一致的结果落库。
+            // 但存档/UI 展示的判定结果不采信 AI 自报的成败——用同样的骰点+角色数值+（DnD的）DC 机械重算一遍作为权威结果。
+            // coc7/freeform 没有 DC，本回合判定结果已经在 prompt 里以预览表的形式提前算好给 AI 抄了，
+            // 这里直接采信机械重算结果即可，不再跟 AI 自报的成败比对/报错——比对只在 dnd5e 上保留，
+            // 因为 DC 是 AI 现场判断的，没法穷举预演，算错了还是要让用户点重roll。
             const checkByCharId: Record<string, { skill?: string; success?: boolean; outcome?: string; tier?: CheckTier }> = {};
             if (Array.isArray(res?.checks)) {
                 for (const c of res.checks) {
@@ -1526,9 +1534,11 @@ ${buildGmStyleSection(dmStyle)}
                     const sheet = activeGame.characterSheets?.[matched];
                     const skillValue = findSkillValueByName(ruleSystemDef, sheet, c.skill);
                     const mechanical = computeCheckTier(ruleSystemDef, diceCfg, roll, skillValue, c.target);
-                    const aiSuccess = c.success !== false;
-                    if (aiSuccess !== mechanical.success) {
-                        throw new Error(`AI 判定结果与骰点/数值不符（${c.skill || '未知判定'}），点击右下角 🔄 按钮重新生成`);
+                    if (isDnd) {
+                        const aiSuccess = c.success !== false;
+                        if (aiSuccess !== mechanical.success) {
+                            throw new Error(`AI 判定结果与骰点/数值不符（${c.skill || '未知判定'}），点击右下角 🔄 按钮重新生成`);
+                        }
                     }
                     checkByCharId[matched] = { skill: c.skill, success: mechanical.success, outcome: c.outcome || mechanical.label, tier: mechanical.tier };
                 }
@@ -1556,11 +1566,13 @@ ${buildGmStyleSection(dmStyle)}
                     });
                 }
 
+                const narratedCharIds = new Set<string>();
                 if (Array.isArray(res.characters)) {
                     for (const charAct of res.characters) {
                         // 优先用 id 精确匹配，name 匹配仅兜底
                         const char = players.find(p => p.id === charAct.charId) || players.find(p => p.name === charAct.charId);
                         if (char) {
+                            narratedCharIds.add(char.id);
                             const combinedContent = `*${charAct.action || ''}* \n"${charAct.dialogue || ''}"`;
                             const check = checkByCharId[char.id];
                             const roll = rollByCharId[char.id];
@@ -1578,6 +1590,24 @@ ${buildGmStyleSection(dmStyle)}
                             });
                         }
                     }
+                }
+                // 兜底：AI 有时会把某个队友的骰点判定塞进 checks[]，却忘了把 TA 也放进 characters[] 里叙述——
+                // 这种情况下判定结果原本无处安放，直接消失。这里给漏掉的人补一条"沉默判定"记录，至少骰点+徽章还在。
+                for (const charId of Object.keys(checkByCharId)) {
+                    if (charId === '__player__' || narratedCharIds.has(charId)) continue;
+                    const char = players.find(p => p.id === charId);
+                    if (!char) continue;
+                    const check = checkByCharId[charId];
+                    const roll = rollByCharId[charId];
+                    if (roll === undefined) continue;
+                    newLogs.push({
+                        id: `char-${Date.now()}-${Math.random()}`,
+                        role: 'character',
+                        speakerName: char.name,
+                        content: `*沉默地完成了这次判定*`,
+                        timestamp: Date.now(),
+                        diceRoll: { result: roll, max: diceCfg.count * diceCfg.sides, check: check.skill, success: check.success, outcome: check.outcome, tier: check.tier }
+                    });
                 }
 
                 // 玩家本人这回合如果被采纳为一次正式检定，把技能/成败信息补回刚才已经落库的那条 player log
@@ -1612,7 +1642,8 @@ ${buildGmStyleSection(dmStyle)}
                 status: newStatus,
                 characterVitals: newVitals,
                 deadCharIds: newDeadCharIds,
-                suggestedActions: res?.suggested_actions || []
+                suggestedActions: res?.suggested_actions || [],
+                pendingPartyRolls: undefined // 本回合已经成功推进，缓存的队友骰点用完即清，下一回合重新投
             };
 
             setActiveGame(prev => (prev?.id === gameId ? finalGame : prev));
@@ -2581,16 +2612,16 @@ ${logText}
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
                     </button>
-                    {/* 剧情/聊天室切换：不是小功能入口，是跟主线并列的全屏视图切换。聊天室=皮下吐槽 */}
-                    {activeGame.oocEnabled && (
-                        <div className={`flex items-center rounded-full border ${theme.border} bg-black/20 p-0.5 text-[10px] font-bold mr-1`}>
-                            <button onClick={() => setPlaySubView('game')} className={`px-3 py-1.5 rounded-full transition-all active:scale-95 ${playSubView === 'game' ? `bg-white/10 ${theme.accent}` : 'opacity-60 hover:opacity-90'}`}>剧情</button>
-                            <button onClick={() => setPlaySubView('chatroom')} className={`relative px-3 py-1.5 rounded-full transition-all active:scale-95 flex items-center gap-1 ${playSubView === 'chatroom' ? `bg-white/10 ${theme.accent}` : 'opacity-60 hover:opacity-90'}`} title="聊天室（皮下吐槽）">
-                                聊天室
-                                {isOocLoading && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>}
-                            </button>
-                        </div>
-                    )}
+                    {/* 剧情/聊天室切换：常驻显示，纯粹是视图切换，不碰 oocEnabled——
+                        是否开启"自动生成吐槽"这个功能开关，收在聊天室视图里自己管，点这个胶囊不会顺手帮用户改功能开关状态
+                        （否则"点开关掉、点剧情又自动开回来"这种隔壁按钮打架的体验会很怪，而且看历史记录时也不该被迫重新开启）。 */}
+                    <div className={`flex items-center rounded-full border ${theme.border} bg-black/20 p-0.5 text-[10px] font-bold mr-1`}>
+                        <button onClick={() => setPlaySubView('game')} className={`px-3 py-1.5 rounded-full transition-all active:scale-95 ${playSubView === 'game' ? `bg-white/10 ${theme.accent}` : 'opacity-60 hover:opacity-90'}`}>剧情</button>
+                        <button onClick={() => setPlaySubView('chatroom')} className={`relative px-3 py-1.5 rounded-full transition-all active:scale-95 flex items-center gap-1 ${playSubView === 'chatroom' ? `bg-white/10 ${theme.accent}` : 'opacity-60 hover:opacity-90'}`} title="聊天室（皮下吐槽）">
+                            聊天室
+                            {isOocLoading && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>}
+                        </button>
+                    </div>
                     <button onClick={() => setShowSystemMenu(true)} className={`p-2 -mr-2 rounded hover:bg-white/10 active:scale-95 transition-transform`}>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
                     </button>
@@ -2672,34 +2703,9 @@ ${logText}
                                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.diceDisabled ? '' : 'translate-x-6'}`}></span>
                             </button>
                         </div>
-                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
-                            <div className="flex flex-col">
-                                <span className="text-sm text-slate-700 font-medium flex items-center gap-1.5"><ChatCircleDots size={16} weight="fill" /> 聊天室</span>
-                                <span className="text-[10px] text-slate-400 mt-0.5">开启后每回合结束给每个角色各自单独调一次 LLM 生成场外吐槽（皮下吐槽，互不看到对方细节），不进主线剧情；死亡/昏迷角色也能场外发言</span>
-                            </div>
-                            <button
-                                onClick={toggleOoc}
-                                role="switch"
-                                aria-checked={!!activeGame.oocEnabled}
-                                className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${activeGame.oocEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                            >
-                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${activeGame.oocEnabled ? 'translate-x-6' : ''}`}></span>
-                            </button>
-                        </div>
-                        {activeGame.oocEnabled && (
-                            <div className="flex items-center justify-between mt-2 pl-1">
-                                <span className="text-[10px] text-slate-400">
-                                    生成方式：{(activeGame.oocCallMode || 'individual') === 'batch' ? '一次性生成所有人（省调用，速度快）' : '逐角色独立调用（防串记忆，更准确）'}
-                                </span>
-                                <button
-                                    onClick={toggleOocCallMode}
-                                    className="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium hover:bg-slate-200 shrink-0"
-                                >
-                                    切换为{(activeGame.oocCallMode || 'individual') === 'batch' ? '逐角色独立' : '一次性生成'}
-                                </button>
-                            </div>
-                        )}
                     </div>
+                    {/* 聊天室（皮下吐槽）的开关+生成方式已经整个搬进聊天室视图本身管理，这里不再重复放一份，
+                        免得两处状态各显示一套、改了一处另一处没同步的错觉 */}
 
                     <button onClick={handleArchiveAndQuit} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
                         <FloppyDisk size={18} /> 归档记忆并退出
@@ -2776,8 +2782,37 @@ ${logText}
             <div className={`h-full w-full relative flex flex-col ${theme.bg} ${theme.text} ${theme.font} transition-colors duration-500 overflow-hidden`}>
                 {renderTopBar()}
 
-                <div className={`px-4 py-2 border-b ${theme.border} bg-black/10 backdrop-blur-sm z-10 shrink-0 text-[10px] opacity-50 text-center`}>
-                    皮下吐槽 · 大家退出游戏状态后的真实闲聊，不进主线剧情
+                {/* 聊天室顶部：功能说明 + 启用开关 + 生成模式选择，这三项原本埋在系统菜单里，现在整体搬到这里在聊天室视图内集中管理 */}
+                <div className={`px-4 py-3 border-b ${theme.border} bg-black/10 backdrop-blur-sm z-10 shrink-0 space-y-2`}>
+                    <div className="text-[10px] opacity-60 text-center">
+                        皮下吐槽 · 大家退出游戏状态后的真实闲聊，不进主线剧情
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className={`${activeGame.oocEnabled ? 'opacity-80' : 'opacity-50'}`}>
+                            {activeGame.oocEnabled ? '每回合结束自动生成吐槽' : '当前已关闭自动生成'}
+                        </span>
+                        <button
+                            onClick={toggleOoc}
+                            role="switch"
+                            aria-checked={!!activeGame.oocEnabled}
+                            className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${activeGame.oocEnabled ? 'bg-emerald-500' : 'bg-white/20'}`}
+                        >
+                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${activeGame.oocEnabled ? 'translate-x-5' : ''}`}></span>
+                        </button>
+                    </div>
+                    {activeGame.oocEnabled && (
+                        <div className="flex items-center justify-between gap-2 text-[10px] pt-1 border-t border-white/10">
+                            <span className="opacity-60">
+                                生成方式：{(activeGame.oocCallMode || 'individual') === 'batch' ? '一次性生成所有人（省调用，快）' : '逐角色独立（防串记忆，准）'}
+                            </span>
+                            <button
+                                onClick={toggleOocCallMode}
+                                className="px-2 py-1 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 transition-all shrink-0 opacity-80"
+                            >
+                                切换
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -3221,7 +3256,7 @@ ${logText}
                         placeholder="你打算做什么..."
                         className={`flex-1 bg-black/20 border ${theme.border} rounded-xl px-3 py-3 outline-none text-sm placeholder-opacity-30 placeholder-current resize-none h-12 leading-tight focus:bg-black/40 transition-colors`}
                     />
-                    <button disabled={isTyping} onClick={() => handleAction(userInput)} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center disabled:opacity-40`}>
+                    <button disabled={isTyping || !userInput.trim()} onClick={() => handleAction(userInput)} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center disabled:opacity-40`}>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>
                     </button>
                 </div>

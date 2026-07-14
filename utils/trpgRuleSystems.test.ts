@@ -5,6 +5,8 @@ import {
     computeVitalState,
     computeSanState,
     getCharacterVitals,
+    toCocPercentile,
+    buildCheckOutcomePreview,
     RULE_SYSTEMS,
     CHECK_TIER_LABELS,
     VITAL_STATE_LABELS,
@@ -316,6 +318,83 @@ describe('TRPG 规则系统 - 五档检定机制', () => {
             expect(shouldDie(prevHealth, hpChange)).toBe(false);
             const newHealth = Math.max(0, Math.min(100, prevHealth + hpChange));
             expect(computeVitalState(newHealth, false)).toBe('unconscious');
+        });
+    });
+
+    describe('toCocPercentile - freeform 非d100骰子换算成等效百分位（bug: AI看到的点数要跟代码机械复核用同一把尺子）', () => {
+        // freeform 的角色数值表是 0-100 百分位（跟 CoC 同刻度），但默认骰子是 d20，用户也能选 d6/2d6/d100。
+        // GameApp.tsx 的 prompt 现在用 toCocPercentile 换算后的值喂给 AI（而不是骰子原始点数），
+        // 这样 AI 判定用的数字才跟 computeCheckTier 内部做机械复核时用的数字一致，不会互相打架。
+        it('d100 本身是恒等映射：换算前后数值相同', () => {
+            const cfg = RULE_SYSTEMS.coc7.dice; // d100 low-good
+            expect(toCocPercentile(cfg, 1)).toBe(1);
+            expect(toCocPercentile(cfg, 50)).toBe(50);
+            expect(toCocPercentile(cfg, 100)).toBe(100);
+        });
+
+        it('d20（freeform 默认骰子）：点数越高（对 high-good 越好）换算成的百分位应越低（越好）', () => {
+            const cfg = { count: 1, sides: 20, successMode: 'high-good' as const, label: 'd20' };
+            const lowRoll = toCocPercentile(cfg, 20); // 玩家投出最高点数
+            const highRoll = toCocPercentile(cfg, 1); // 玩家投出最低点数
+            expect(lowRoll).toBeLessThan(highRoll);
+            expect(lowRoll).toBeGreaterThanOrEqual(1);
+            expect(highRoll).toBeLessThanOrEqual(100);
+        });
+
+        it('换算后的百分位用于 computeCheckTier 判定时，跟直接传骰子原始点数得到的结果一致（同一套内部逻辑）', () => {
+            const cfg = { count: 1, sides: 20, successMode: 'high-good' as const, label: 'd20' };
+            const sys = RULE_SYSTEMS.freeform;
+            const roll = 15;
+            const direct = computeCheckTier(sys, cfg, roll, 50, undefined);
+            const percentile = toCocPercentile(cfg, roll);
+            // computeCheckTier 内部本来就会调用 toCocPercentile 再比较，这里验证换算值本身落在
+            // 直接判定所暗示的档位范围内（percentile ≤ 50 应对应 success，> 70 应对应 failure/partial 边界一致）
+            if (direct.success) {
+                expect(percentile).toBeLessThanOrEqual(70); // partial 上限是 skillValue+20=70
+            } else {
+                expect(percentile).toBeGreaterThan(50);
+            }
+        });
+    });
+
+    describe('buildCheckOutcomePreview - 判定结果预览表（问题1：coc7/freeform 没有DC，AI 不该自己算成败，只能抄这张表）', () => {
+        const sys = RULE_SYSTEMS.coc7;
+        const cfg = sys.dice; // d100
+
+        it('有角色卡时，为每一项技能/属性都算出对应的确定判定结果', () => {
+            const sheet: CharacterSheetEntry = {
+                name: '测试角色',
+                characteristics: { STR: 50 },
+                skills: { spot_hidden: 30, stealth: 60 },
+            };
+            const preview = buildCheckOutcomePreview(sys, cfg, 30, sheet);
+            // spot_hidden=30, roll=30 -> success；stealth=60, roll=30 -> success（30<=60）
+            expect(preview).toContain('侦查');
+            expect(preview).toContain('潜行');
+            expect(preview).toContain(CHECK_TIER_LABELS.success);
+            // 结果里不应包含 label 里的括注部分（stripParen 会去掉英文名）
+            expect(preview).not.toContain('(Spot Hidden)');
+        });
+
+        it('同一个 roll 对不同技能值算出的档位应该不同（体现"每项技能结果都不一样，不能一刀切"）', () => {
+            const sheet: CharacterSheetEntry = {
+                name: '测试角色',
+                characteristics: {},
+                skills: { spot_hidden: 5, stealth: 90 }, // roll=50 时，一个大失败一个大成功
+            };
+            const preview = buildCheckOutcomePreview(sys, cfg, 50, sheet);
+            const spotResult = computeCheckTier(sys, cfg, 50, 5, undefined);
+            const stealthResult = computeCheckTier(sys, cfg, 50, 90, undefined);
+            expect(spotResult.tier).not.toBe(stealthResult.tier);
+            expect(preview).toContain(`侦查=${spotResult.label}`);
+            expect(preview).toContain(`潜行=${stealthResult.label}`);
+        });
+
+        it('没有角色卡时，退化成统一按 50 分计算的固定结果（提示 AI 不用管选哪个技能）', () => {
+            const preview = buildCheckOutcomePreview(sys, cfg, 10, undefined);
+            const fallback = computeCheckTier(sys, cfg, 10, 50, undefined);
+            expect(preview).toContain(fallback.label);
+            expect(preview).toContain('已确定');
         });
     });
 });

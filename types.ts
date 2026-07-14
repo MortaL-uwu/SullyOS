@@ -3029,6 +3029,10 @@ export interface GameSession {
     // oocLogs 里已经推送进角色记忆/聊天的条数（高水位游标，不是"归档"标记——聊天室内容本身不折叠/不进主线归档）。
     // 自动归档模式下每次自动总结都会顺带推一批未推送的原文过去；手动模式下攒到「归档记忆并退出」时一次性带走。
     oocPushedCount?: number;
+    // 本回合待确认的队友骰点：跟玩家发送动作同一时刻落库，供 handleReroll 复用（reroll 不重投骰子）。
+    // 玩家本人的骰点已经存在对应 log 的 diceRoll 里，不需要单独存一份；这里只存队友的。
+    // 回合成功落库后清空；本身不参与判定逻辑，纯粹是"重roll要用同一批数字"的缓存。
+    pendingPartyRolls?: Array<{ id: string; name: string; roll: number }>;
     suggestedActions?: GameActionOption[];
     summaries?: GameSummary[];   // 自动总结归档的前情提要
     createdAt: number;

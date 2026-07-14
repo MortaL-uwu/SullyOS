@@ -141,11 +141,11 @@ export const RULE_SYSTEMS: Record<RuleSystemId, RuleSystemDef> = {
         diceConfigurable: true,
         skills: FREEFORM_BASIC_SKILLS,
         derivedNote: '角色数值表为可选项：基础技能固定通用，特殊技能由 AI 按本场世界观原创',
-        checkInstruction: (opts) => {
-            if (opts?.hasSheet) {
-                return `本场已启用角色数值表：请从下方【角色数值表】里找到与本次行动最贴切的技能，其数值(0-100)代表角色在这方面的熟练程度，数值越高应越容易成功；没有直接对应的技能就近类比。请结合骰点结果与这个数值裁定行动的成败与代价，让结果自然融入叙事，不要直接复述数字。`;
-            }
-            return `请据此裁定行动的成败与代价，让结果自然融入叙事，不要直接复述数字。`;
+        checkInstruction: () => {
+            // 没有 DC，成败本质是"骰点换算成的等效百分位 vs 技能数值"这道确定的算术题，代码已经把
+            // 每个人每项技能对应的判定结果提前算好（见"本回合判定结果预览"），AI 只需要挑一项语义上
+            // 贴切的技能/属性抄结果，不要（也不需要）自己重新计算成败。
+            return `本场用的是数值判定制，没有难度等级(DC)。下方"本回合判定"里已经给出这个人**每一项技能/属性对应的确定判定结果**（大成功/成功/勉强成功/失败/大失败）——请直接从中挑一项语义上跟本次行动最贴切的技能，把对应的结果原样抄进 outcome/success，不要自己比较骰点和数值、不要更改这个结果。`;
         },
     },
     coc7: {
@@ -157,12 +157,10 @@ export const RULE_SYSTEMS: Record<RuleSystemId, RuleSystemDef> = {
         characteristics: COC7_CHARACTERISTICS,
         skills: COC7_SKILLS,
         derivedNote: 'HP=(SIZ+CON)/10，SAN 初始=POW，理智损失见 SAN 值变化',
-        checkInstruction: (opts) => {
-            const target = opts?.target ?? 50;
-            if (opts?.hasSheet) {
-                return `这是 CoC 规则下的 d100 检定：投出的点数需 **≤ 对应技能/属性数值** 才算成功，数值越低成功度越高（≤ 该数值的1/5 为大成功，96-100 为大失败，特殊规则：数值本身≥96时按96判定）。请从下方【角色数值表】里找到与本次行动最贴切的技能/属性，用它的数值作为目标值裁定成败；如果没有直接对应的技能，就近用相关属性代替，并可根据剧情合理性隐式微调。`;
-            }
-            return `这是 CoC 规则下的 d100 检定：投出的点数需 **≤ ${target}** 才算成功，数值越低成功度越高（≤ ${Math.floor(target / 5)} 为大成功，96-100 为大失败）。当前角色数值表尚未启用，请以 ${target} 作为本次判定的统一难度目标值裁定成败，可根据剧情合理性隐式调整实际难度感。`;
+        checkInstruction: () => {
+            // 同 freeform：CoC 本身就是 d100 数值判定制，没有 DC，成败是确定的算术题，代码已提前算好
+            // 每项技能的结果，AI 只需要挑技能抄结果。
+            return `这是 CoC 规则下的 d100 检定，没有难度等级(DC)。下方"本回合判定"里已经给出这个人**每一项技能/属性对应的确定判定结果**（大成功/成功/勉强成功/失败/大失败）——请直接从中挑一项语义上跟本次行动最贴切的技能/属性，把对应的结果原样抄进 outcome/success，不要自己比较骰点和数值、不要更改这个结果。`;
         },
     },
     dnd5e: {
@@ -236,7 +234,7 @@ export const CHECK_TIER_LABELS: Record<CheckTier, string> = {
 // 把任意骰子配置下的一次投骰，换算成"d100 低位好"等效百分位（1-100，越低越好）。
 // low-good（如 d100 本身）直接按比例映射；high-good（如 d20）先取反再映射。
 // 对真正的 d100 low-good 输入，这个换算是恒等的（roll=50 -> 50），所以 CoC7 的行为和换算前完全一致。
-const toCocPercentile = (cfg: DiceConfig, roll: number): number => {
+export const toCocPercentile = (cfg: DiceConfig, roll: number): number => {
     const max = cfg.count * cfg.sides;
     const min = cfg.count;
     if (max <= min) return 50;
@@ -284,6 +282,44 @@ export const computeCheckTier = (
     }
     const success = tier !== 'failure' && tier !== 'critical_failure';
     return { tier, label: CHECK_TIER_LABELS[tier], success };
+};
+
+// 消除"AI 算错成败"这类风险的关键函数：coc7/freeform 没有 DC，判定结果本质是"骰点(换算成等效
+// 百分位) vs 技能数值"这道确定的算术题，代码本来就会算（见 computeCheckTier）。既然如此，没必要
+// 等 AI 自己算完再拿代码复核——直接把这个人数值表里**每一项**技能/属性对应的判定结果都提前算好，
+// 整理成一行文本喂给 AI，AI 只需要挑一项语义上贴切的技能抄结果，不再需要（也不被允许）自己计算。
+// 仅适用于 coc7/freeform：dnd5e 的 DC 必须由 AI 按情境判断，没法穷举，DC 相关的算术风险保留现有
+// 复核机制（见 apps/GameApp.tsx handleAction 里 isDnd 分支）。
+export const buildCheckOutcomePreview = (
+    sys: RuleSystemDef,
+    cfg: DiceConfig,
+    roll: number,
+    sheet: CharacterSheetEntry | undefined,
+): string => {
+    const stripParen = (s: string) => s.split('(')[0].split('（')[0].trim();
+    const pools: Array<{ key: string; label: string; kind: 'skill' | 'char' }> = [
+        ...(sys.skills || []).map(s => ({ key: s.key, label: s.label, kind: 'skill' as const })),
+        ...(sys.characteristics || []).map(c => ({ key: c.key, label: c.label, kind: 'char' as const })),
+    ];
+    if (!sheet || pools.length === 0) {
+        // 没有角色数值表：所有技能共享同一个固定目标值(50)，这个人本回合的判定结果因此是唯一确定的，
+        // 用哪个技能裁定都不影响结果。
+        const { label } = computeCheckTier(sys, cfg, roll, 50, undefined);
+        return `本回合判定结果已确定：${label}（无论选用哪个技能/属性，结果都是这个，不需要自己计算）`;
+    }
+    const lines: string[] = [];
+    for (const p of pools) {
+        const src = p.kind === 'skill' ? sheet.skills : sheet.characteristics;
+        const v = src?.[p.key];
+        if (v === undefined) continue;
+        const { label } = computeCheckTier(sys, cfg, roll, v, undefined);
+        lines.push(`${stripParen(p.label)}=${label}`);
+    }
+    if (lines.length === 0) {
+        const { label } = computeCheckTier(sys, cfg, roll, 50, undefined);
+        return `本回合判定结果已确定：${label}（无论选用哪个技能/属性，结果都是这个，不需要自己计算）`;
+    }
+    return lines.join('、');
 };
 
 // 把 AI 给的自由文本技能/属性名（如"说服"、"力量"）模糊匹配回角色数值表里的实际数值。

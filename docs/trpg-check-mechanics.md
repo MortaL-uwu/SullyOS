@@ -18,18 +18,34 @@
    上是对的，但漏了一个环节——**AI 写 `gm_narrative`（剧情正文）的时候，跟 `checks[]` 是在
    同一次响应里同时生成的**。如果 AI 完全不知道这次检定成不成，它没法写"锁被撬开了"还是
    "手一抖，锁扣崩断"，剧情没法推进，等于开发出了一个不能用的地雷。
-4. **最终方案（当前实现）**：AI 在同一次输出里，自己顺手把这道算术题也算了（骰点 vs 技能值，
+4. **方案 4（曾经的实现）**：AI 在同一次输出里，自己顺手把这道算术题也算了（骰点 vs 技能值，
    或骰点+加值 vs 自己刚定的DC），**当成真实结果直接写进 `checks[].success/outcome`**，并照着
-   这个结果写剧情——prompt 里不提"这只是估算""可能被系统覆盖"之类的话，AI 就把它当成
-   确定的判定结果来写，剧情才能正常、确定地推进。
-   代码拿到完整响应后，用**同样的骰点 + 角色数值表 + AI 给的 DC**（对 D&D）独立重算一遍
-   （`computeCheckTier`），作为存档/UI 展示的权威判定。如果 AI 算错了（重算结果的 success 跟
-   AI 报的不一致），直接 `throw`，这一回合作废、报错提示用户点"重新推演"（`handleReroll`）
-   即可——不把不一致的结果落库，比"让不一致的错误结果混进存档"更安全。
+   这个结果写剧情。代码拿到完整响应后，用**同样的骰点 + 角色数值表 + AI 给的 DC**（对 D&D）
+   独立重算一遍（`computeCheckTier`），如果 AI 算错了（重算结果跟 AI 报的不一致），直接
+   `throw`，这一回合作废，用户点"重新推演"重来。问题——**coc7/freeform 明明没有 DC，AI
+   本来就不需要现场判断任何东西，纯算术却还是经常算错**，导致频繁 `throw`→重roll→重新调用
+   一次 LLM，既费钱又体验差。而"AI 只给语义、代码机械算成败、不让 AI 猜"这条路（方案 3）在
+   coc7/freeform 上其实是可行的——卡点只在"AI 写剧情时得知道成不成才能写"，而这一步**不需要
+   AI 自己算，可以提前用代码穷举好**。
+5. **最终方案（当前实现，coc7/freeform 与 dnd5e 分道）**：
+   - **coc7 / freeform（没有 DC，成败是确定算术题）**：代码在拼 prompt 时，用
+     `buildCheckOutcomePreview` 把这个人**每一项技能/属性对应的确定判定结果都提前算好**，
+     整张表喂给 AI，`checkInstruction` 直接告诉 AI"挑一项语义最贴切的技能，把对应结果原样
+     抄进 `outcome`/`success`，不要自己比较骰点和数值"。AI 只做语义匹配（选技能），不做算术，
+     从根上消灭了"算错"这个风险来源——因此代码侧的机械复核**不再跟 AI 报的成败比对/`throw`**，
+     直接采信机械重算结果落库即可（AI 抄没抄对不影响存档权威性，抄错了只是这条 `outcome`
+     文案跟徽章不搭，不会挡住回合推进）。
+   - **dnd5e（DC 是现场语义判断，没法穷举预演）**：保持方案 4 的做法不变——AI 自己定 DC 并算
+     成败，代码机械复核，不一致仍然 `throw` 让用户重roll。这条风险目前**接受且保留**（唯一能
+     消除它的办法是两次 LLM 调用，成本上不划算，见下）。
+   - **不引入两次 LLM 调用**：曾经考虑过"判断调用+叙事调用"拆两次来彻底杜绝 AI 算错，但两次
+     调用意味着每回合成本翻倍，性价比上不划算，予以否决——上面"预览表"方案在单次调用内就
+     把 coc7/freeform 的风险清零了，dnd5e 的残余风险靠已有的 `throw`+重roll 兜底，不需要为了
+     它去掏两倍的钱。
 
-一句话总结数据流：**AI 一次性算完并写好剧情 → 代码用同一批数字复核 → 一致则落库，不一致
-则报错重骰**。这样只用一次 LLM 调用，AI 写剧情时手上有确定的结果可用，代码又保留了对
-AI 算错的兜底手段。
+一句话总结数据流（coc7/freeform）：**代码先把每项技能的判定结果都算好摆出来 → AI 只挑一项
+抄 → 代码直接采信机械结果落库，不比对不 throw**。dnd5e 维持原数据流：**AI 定 DC 并自己算完
+写剧情 → 代码用同一批数字复核 → 一致则落库，不一致则报错重骰**。
 
 ## 全员先骰（`handleAction` 开头）
 
@@ -38,15 +54,41 @@ AI 算错的兜底手段。
 - 这些骰点**不代表都会被用上**——是否构成一次正式检定、用哪个技能，交给同一次生成判断
   （省掉一次单独的"是否需要判定"预调用，这是最早那次大改的核心动机）。
 - 骰点结果通过 `rollInstruction`（prompt 里的一段）连同 `checkInstruction`（见下）一起喂给 LLM。
+- 玩家发送的那一刻会弹一条 toast 直接展示这一轮所有人的具体骰点数字（如"全员已骰点 →
+  你:15 / 张三:62 / ..."），不是笼统的"全员已骰点"——因为骰点现在是**持久化、reroll 也不会
+  变**的（见下一条），提前告诉用户具体数字不会有"看了一眼结果又被 reroll 换掉"的落差感。
+- **骰点持久化，reroll 不重投**：玩家的骰点本来就存在对应 `GameLog.diceRoll.result` 里；
+  队友的骰点现在也跟着玩家这条 log 同一时刻存进 `GameSession.pendingPartyRolls`
+  （`{id, name, roll}[]`）。`handleReroll`（本质是带 `isReroll=true` 重新调 `handleAction`）
+  会优先从这两处**原样读回**上一次的骰点，而不是重新 `rollDice`——保证"重新推演"只是让 AI
+  换一种方式裁定/叙述同一批骰点，不是变成一次新的抽奖。回合成功落库后 `pendingPartyRolls`
+  立即清空（下一回合重新投）；老存档没有这个字段时兜底重投一次，不会崩。
 
 ## 规则系统的 `checkInstruction`（`utils/trpgRuleSystems.ts`）
 
 `RuleSystemDef.checkInstruction(opts?: { target?, hasSheet? })` 三个系统各自返回一段判定说明文本，
-拼进 prompt。**这段文本让 AI 直接裁定成败并写进 `outcome`**，不含任何"这只是估算/系统会覆盖"的
-措辞——保持跟改造前一致的、确定性的指令风格：
+拼进 prompt。三个系统现在的指令风格**不一样**了（coc7/freeform 与 dnd5e 分道，见上面"为什么这么
+设计"第 5 点）：
 
-- `freeform` / `coc7`：说明"用技能数值裁定成败，让结果自然融入叙事，不要直接复述数字"。
-- `dnd5e`：多一步——**先给出这次检定的 DC**（通常 5~30，按情境危险程度），再据此裁定成败。
+- `freeform` / `coc7`：签名是 `() => string`（不再吃 `hasSheet` 参数，因为不需要区分了）。文案
+  改成"下方预览表已经给出这个人每一项技能/属性对应的确定判定结果，请挑一项语义最贴切的抄进
+  `outcome`/`success`，不要自己比较骰点和数值"——**只做语义匹配，不做算术**。
+- `dnd5e`：签名不变，仍然是"先给出这次检定的 DC（通常 5~30，按情境危险程度），再据此裁定
+  成败"——这段风险（AI 自己算错）保留，接受用现有的 `throw`+重roll 兜底（理由见上）。
+
+### 判定结果预览表（`buildCheckOutcomePreview`，仅 coc7/freeform 用）
+
+`GameApp.tsx` 拼 `rollInstruction` 时，对player和每个队友都会调一次
+`buildCheckOutcomePreview(ruleSystemDef, diceCfg, roll, characterSheets[id])`，替换掉原来单纯的
+"骰点数字"，塞进对应人的那一行：
+
+- 有角色卡：遍历这个规则系统的全部技能+属性，每一项各自用 `computeCheckTier` 算出这个人这一
+  次骰点对应的五档结果，拼成 `技能名=结果` 的列表（如"侦查=成功、潜行=大成功、..."），技能名
+  会先去掉括号里的英文/别名部分（`stripParen`），避免预览表比正文还啰嗦。
+- 没有角色卡（比如还没生成角色卡的临时场景）：退化成统一按 50 分算一个固定结果，并在文案里
+  显式提示"无论选哪个技能/属性，结果都是这个，不需要自己计算"——避免 AI 误以为自己还要挑值。
+- dnd5e 完全不调这个函数——它的成败取决于 AI 现场定的 DC，没法穷举预演，走的还是原来的
+  `roll（flavor 描述）` 展示方式。
 
 ## AI 输出格式（`checks[]`）
 
@@ -76,11 +118,14 @@ AI 算错的兜底手段。
      （`≤ 数值/5` 大成功、`≥96` 大失败、`≤数值` 成功、`≤数值+20` 勉强、否则失败）比较。
    - **dnd5e**：`raw===20` 大成功、`raw===1` 大失败，否则按 `(骰点+加值) - DC` 的余量分档
      （`≥5` 大成功、`≥0` 成功、`≥-5` 勉强、否则失败）。
-4. 拿机械算出的 `success` 跟 AI 报的 `c.success`（缺省视为 `true`）比较——**不一致就
-   `throw new Error(...)`**，被外层 `catch` 捕获后走 `addToast('GM 掉线了: ...', 'error')`，
-   这一回合不写入日志/存档，用户点"重新推演"（骰子会重骰）即可恢复。
-5. 一致的话，把**代码算出的** `tier`/`success`（不是 AI 报的）存进 `checkByCharId`，
-   `outcome` 优先用 AI 给的那句话（更贴合剧情），没有才回退成 `CHECK_TIER_LABELS[tier]`。
+4. **仅 `isDnd` 时**：拿机械算出的 `success` 跟 AI 报的 `c.success`（缺省视为 `true`）
+   比较——不一致就 `throw new Error(...)`，被外层 `catch` 捕获后走
+   `addToast('GM 掉线了: ...', 'error')`，这一回合不写入日志/存档，用户点"重新推演"
+   （玩家和队友的骰点都原样复用，不重骰，见上面"全员先骰"一节）即可恢复。
+   **coc7/freeform 不做这个比对/不 `throw`**——AI 在这两个规则下只是从预览表里抄结果，没有
+   算术可算错，比对没有意义，直接进第 5 步落库即可，省掉不必要的报错重roll。
+5. 把**代码算出的** `tier`/`success`（不是 AI 报的）存进 `checkByCharId`，`outcome` 优先用
+   AI 给的那句话（更贴合剧情），没有才回退成 `CHECK_TIER_LABELS[tier]`。
 
 ## 五档结果存储与展示
 
@@ -96,9 +141,9 @@ AI 算错的兜底手段。
 
 | 文件 | 职责 |
 |------|------|
-| `utils/trpgRuleSystems.ts` | `RuleSystemDef.checkInstruction`、`CheckTier`/`CHECK_TIER_LABELS`、`computeCheckTier`（机械五档计算）、`findSkillValueByName`（技能名模糊匹配）、`toCocPercentile`（骰子归一化） |
-| `apps/GameApp.tsx` | `handleAction`（全员先骰、prompt 拼接、`checks[]` 解析+机械复核+throw）、`handleReroll`（复核失败后用户手动重骰的入口）、`DICE_TIER_BADGE_STYLE`/`diceTierBadgeClass`（UI 徽章） |
-| `types.ts` | `GameLog.diceRoll`：`result/max/check/tier/success/outcome` |
+| `utils/trpgRuleSystems.ts` | `RuleSystemDef.checkInstruction`、`CheckTier`/`CHECK_TIER_LABELS`、`computeCheckTier`（机械五档计算）、`buildCheckOutcomePreview`（coc7/freeform 判定结果预览表）、`findSkillValueByName`（技能名模糊匹配）、`toCocPercentile`（骰子归一化） |
+| `apps/GameApp.tsx` | `handleAction`（全员先骰、`pendingPartyRolls` 持久化、prompt 拼接、`checks[]` 解析+机械复核+仅 dnd5e 的 throw）、`handleReroll`（复核失败后用户手动重骰的入口，复用同一批骰点） |
+| `types.ts` | `GameLog.diceRoll`：`result/max/check/tier/success/outcome`；`GameSession.pendingPartyRolls`（reroll 用的队友骰点缓存） |
 
 ## 逐人 HP/SAN、死亡/昏迷/疯狂、皮下吐槽（OOC）
 
