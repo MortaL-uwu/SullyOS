@@ -46,6 +46,45 @@ describe('extractJson – Claude quiz JSON recovery', () => {
         expect(j.text).toContain('还不够好');
     });
 
+    it('recovers literal newlines inside JSON string values (TRPG OOC chat)', () => {
+        // When prompted to "use newlines to separate bubbles," LLMs sometimes emit
+        // a real newline byte inside the JSON string instead of the escape sequence \n.
+        // JSON.parse throws "Bad control character in string literal" on that.
+        // Regression: caused silent OOC message drop (空回) after prompt edit that
+        // told the model to split messages with newlines — the instruction worked,
+        // but broke JSON parsing because the model inserted literal \n bytes.
+        const bad = `[{"charId":"c1","speak":true,"content":"哈哈我这次居然大成功了
+太爽了"},{"charId":"c2","speak":false,"content":""}]`;
+        const j = extractJson(bad);
+        expect(j).not.toBeNull();
+        expect(Array.isArray(j)).toBe(true);
+        expect(j.length).toBe(2);
+        expect(j[0].content).toContain('\n'); // after fix, the literal newline becomes a real \n in the parsed value
+        expect(j[0].content).toBe('哈哈我这次居然大成功了\n太爽了');
+    });
+
+    it('does not escape structural newlines outside of strings (pretty-print)', () => {
+        // Pretty-printed JSON with newlines/tabs for indentation should remain parseable
+        const pretty = `{
+  "questions": [
+    {
+      "stem": "First"
+    }
+  ]
+}`;
+        const j = extractJson(pretty);
+        expect(j).not.toBeNull();
+        expect(Array.isArray(j.questions)).toBe(true);
+    });
+
+    it('does not double-escape already-escaped newlines', () => {
+        // If the model correctly emitted \n as a two-char escape sequence, don't break it
+        const alreadyEscaped = `{"content":"line one\\nline two"}`;
+        const j = extractJson(alreadyEscaped);
+        expect(j).not.toBeNull();
+        expect(j.content).toBe('line one\nline two'); // parsed value has a real newline
+    });
+
     it('strips code fences and drops trailing commas', () => {
         const bad = '```json\n{ "questions": [ { "type": "true_false", "answer": "true", }, ], }\n```';
         const j = extractJson(bad);

@@ -3062,6 +3062,8 @@ export interface GameSession {
         speakerName: string;
         content: string;
         timestamp: number;
+        // 引用/回复：跟私聊 Message.replyTo 同结构，content 是被引用消息的截断快照（非实时查找）。
+        replyTo?: { id: string; content: string; name: string };
     }>;
     // oocLogs 里已经推送进角色记忆/聊天的条数（高水位游标，不是"归档"标记——聊天室内容本身不折叠/不进主线归档）。
     // 自动归档模式下每次自动总结都会顺带推一批未推送的原文过去；手动模式下攒到「归档记忆并退出」时一次性带走。

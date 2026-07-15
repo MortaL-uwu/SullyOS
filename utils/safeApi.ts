@@ -465,6 +465,48 @@ export function extractContent(data: any): string {
  * Returns parsed object on success, null on total failure.
  */
 /**
+ * Walk through a JSON-ish string and replace literal control characters
+ * (real newline/CR/tab bytes) that appear *inside* a quoted string value with
+ * their proper JSON escape sequences (\n, \r, \t). Leaves structural whitespace
+ * (indentation, newlines between tokens outside of strings) untouched.
+ *
+ * LLMs are frequently instructed to "use a newline to separate bubbles" and,
+ * despite being told to use the two-character escape `\n`, sometimes emit an
+ * actual newline byte inside the JSON string value instead. JSON.parse throws
+ * "Bad control character in string literal" on that — none of the other repair
+ * heuristics below (quotes, commas, truncation) can fix a raw control byte, so
+ * this has to run first, before any JSON.parse attempt.
+ */
+function escapeLiteralControlCharsInJson(text: string): string {
+    let result = '';
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+
+        if (escaped) { result += ch; escaped = false; continue; }
+        if (ch === '\\' && inString) { result += ch; escaped = true; continue; }
+
+        if (ch === '"') {
+            inString = !inString;
+            result += ch;
+            continue;
+        }
+
+        if (inString) {
+            if (ch === '\n') { result += '\\n'; continue; }
+            if (ch === '\r') { result += '\\r'; continue; }
+            if (ch === '\t') { result += '\\t'; continue; }
+        }
+
+        result += ch;
+    }
+
+    return result;
+}
+
+/**
  * Walk through a JSON-ish string and re-escape `"` characters that appear inside
  * string values but weren't escaped by the LLM.
  *
@@ -582,6 +624,13 @@ export function extractJson(raw: string): any | null {
         .replace(/^```(?:json|JSON)?\s*\n?/gm, '')
         .replace(/\n?```\s*$/gm, '')
         .trim();
+
+    // 1.5. Sanitize literal control characters inside JSON string values.
+    // LLMs sometimes insert raw \n/\r/\t bytes instead of the two-char escape sequences
+    // (especially when prompted to "use newlines" but the output channel is JSON).
+    // JSON.parse throws "Bad control character in string literal" on these.
+    // Walk the string, escape any literal control chars found inside quoted regions.
+    text = escapeLiteralControlCharsInJson(text);
 
     // 2. Try direct parse first (fast path)
     try { return JSON.parse(text); } catch {}

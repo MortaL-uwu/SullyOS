@@ -10,7 +10,7 @@ import { ChatParser } from '../utils/chatParser';
 import { RuleSystemId, DiceConfig, RULE_SYSTEMS, RULE_SYSTEM_LIST, DICE_PRESETS, DEFAULT_DICE_CONFIG, FREEFORM_BASIC_SKILLS, rollDice, rollFlavorFor, toCocPercentile, buildCheckOutcomePreview, formatCharacterSheetsBlock, buildCharacterSheetPrompt, buildFreeformCharacterSheetPrompt, computeCheckTier, findSkillValueByName, CheckTier, CHECK_TIER_LABELS, getCharacterVitals, computeVitalState, computeSanState, VITAL_STATE_LABELS, SAN_STATE_LABELS, VitalState, SanState } from '../utils/trpgRuleSystems';
 import Modal from '../components/os/Modal';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
-import { Planet, RocketLaunch, Lightning, LockSimple, DiceFive, Toolbox, FloppyDisk, ArrowsClockwise, DoorOpen, IdentificationCard, Eye, SkullIcon } from '@phosphor-icons/react';
+import { Planet, RocketLaunch, Lightning, LockSimple, DiceFive, Toolbox, FloppyDisk, ArrowsClockwise, DoorOpen, IdentificationCard, Eye, SkullIcon, Trophy, Crown, Fire, Skull as SkullTombstone, ChartBar, Sparkle } from '@phosphor-icons/react';
 
 // --- Themes Configuration (Enhanced) ---
 const GAME_THEMES: Record<GameTheme, { bg: string, text: string, accent: string, font: string, border: string, cardBg: string, gradient: string, optionNormal: string, optionChaotic: string, optionEvil: string }> = {
@@ -306,6 +306,11 @@ const diceTierBadgeClass = (diceRoll?: GameLog['diceRoll']): string => {
     if (diceRoll.tier) return DICE_TIER_BADGE_STYLE[diceRoll.tier];
     return DICE_TIER_BADGE_STYLE.unadopted;
 };
+// 大成功/大失败徽章出现时"跳"一下，复用现有 pop-in 关键帧（避免改全局 index.html 引入新动画增加合并冲突）
+const diceTierBadgeAnim = (diceRoll?: GameLog['diceRoll']): string => {
+    if (diceRoll?.tier === 'critical_success' || diceRoll?.tier === 'critical_failure') return 'animate-pop-in';
+    return '';
+};
 // 气泡下方的判定说明小字：判定过的显示"技能·五档标签：代价原因"，没被采纳的骰点显示提示语，
 // 没骰点/纯叙事的不显示（调用处已经用 log.diceRoll 判断了）。
 const diceOutcomeLine = (diceRoll?: GameLog['diceRoll']): string | null => {
@@ -315,6 +320,87 @@ const diceOutcomeLine = (diceRoll?: GameLog['diceRoll']): string | null => {
         return `${diceRoll.check ? `${diceRoll.check}·` : ''}${label}${diceRoll.outcome ? `：${diceRoll.outcome}` : ''}`;
     }
     return '本回合骰了，但这次行动没有实际风险/冲突，未被采纳为正式判定';
+};
+
+// 运势面板：逐人统计本场已采纳的正式判定（tier 存在的骰点），純从 logs 派生，不新增持久化字段。
+interface FortuneStat {
+    name: string;
+    total: number;
+    criticalSuccess: number;
+    success: number;
+    partial: number;
+    failure: number;
+    criticalFailure: number;
+    luckScore: number; // 大成功+2/成功+1/部分成功0/失败-1/大失败-2，按次数归一化，越高越"欧"
+}
+const computeFortuneStats = (logs: GameLog[]): FortuneStat[] => {
+    const map = new Map<string, FortuneStat>();
+    for (const log of logs) {
+        const tier = log.diceRoll?.tier;
+        if (!tier) continue;
+        const name = log.speakerName || '玩家';
+        if (!map.has(name)) {
+            map.set(name, { name, total: 0, criticalSuccess: 0, success: 0, partial: 0, failure: 0, criticalFailure: 0, luckScore: 0 });
+        }
+        const stat = map.get(name)!;
+        stat.total++;
+        if (tier === 'critical_success') stat.criticalSuccess++;
+        else if (tier === 'success') stat.success++;
+        else if (tier === 'partial') stat.partial++;
+        else if (tier === 'failure') stat.failure++;
+        else if (tier === 'critical_failure') stat.criticalFailure++;
+    }
+    for (const stat of map.values()) {
+        const raw = stat.criticalSuccess * 2 + stat.success - stat.failure - stat.criticalFailure * 2;
+        stat.luckScore = stat.total > 0 ? raw / stat.total : 0;
+    }
+    return Array.from(map.values()).sort((a, b) => b.luckScore - a.luckScore);
+};
+
+// 高光时刻：所有大成功/大失败的判定，按时间倒序（最新的在最上面）。
+interface HighlightMoment {
+    id: string;
+    speakerName: string;
+    tier: CheckTier;
+    check?: string;
+    outcome?: string;
+    content: string;
+    timestamp: number;
+}
+const computeHighlightMoments = (logs: GameLog[]): HighlightMoment[] => {
+    return logs
+        .filter(l => l.diceRoll?.tier === 'critical_success' || l.diceRoll?.tier === 'critical_failure')
+        .map(l => ({
+            id: l.id,
+            speakerName: l.speakerName || '玩家',
+            tier: l.diceRoll!.tier as CheckTier,
+            check: l.diceRoll!.check,
+            outcome: l.diceRoll!.outcome,
+            content: l.content,
+            timestamp: l.timestamp,
+        }))
+        .reverse();
+};
+
+// 给聊天室 OOC prompt 用的一段纯文字总结（谁骰了多少次、大致战绩、本场最欧/最非酋是谁），
+// 让角色吐槽时能引用"整场"的运势趋势，而不只是最近 8 条判定的片段视角。
+const buildFortuneSummaryText = (logs: GameLog[]): string => {
+    const stats = computeFortuneStats(logs);
+    if (stats.length === 0) return '（本场还没有正式判定，运势未知）';
+    const lines = stats.map(s => {
+        const parts: string[] = [];
+        if (s.criticalSuccess) parts.push(`大成功×${s.criticalSuccess}`);
+        if (s.success) parts.push(`成功×${s.success}`);
+        if (s.partial) parts.push(`部分成功×${s.partial}`);
+        if (s.failure) parts.push(`失败×${s.failure}`);
+        if (s.criticalFailure) parts.push(`大失败×${s.criticalFailure}`);
+        return `${s.name}：共${s.total}次判定（${parts.join('、') || '暂无细分'}）`;
+    });
+    let ranking = '';
+    if (stats.length > 1 && stats[0].luckScore !== stats[stats.length - 1].luckScore) {
+        ranking = `\n本场目前最欧的是${stats[0].name}，最非酋的是${stats[stats.length - 1].name}。`;
+    }
+    return lines.join('\n') + ranking;
 };
 
 const GameApp: React.FC = () => {
@@ -399,7 +485,10 @@ const GameApp: React.FC = () => {
     const [oocSelectMode, setOocSelectMode] = useState(false);          // 聊天室长按多选 → 批量删除/转发到聊天
     const [selectedOocIds, setSelectedOocIds] = useState<Set<string>>(new Set());
     const [isOocForwarding, setIsOocForwarding] = useState(false);
+    const [oocReplyingTo, setOocReplyingTo] = useState<{ id: string; content: string; name: string } | null>(null); // 玩家引用回复某条 OOC 消息
     const [uiSettings, setUiSettings] = useState<{fontSize: number, color: string}>({ fontSize: 14, color: '' });
+    const [showStatsModal, setShowStatsModal] = useState(false);        // 运势面板/高光时刻 Modal
+    const [statsTab, setStatsTab] = useState<'fortune' | 'highlights'>('fortune'); // 运势面板内 tab
 
     // SAN Lock: Sync from activeGame on load
     const [sanityLocked, setSanityLocked] = useState(false);
@@ -938,6 +1027,26 @@ ${playerContext}
         const allChars = characters.filter(c => game.playerCharIds.includes(c.id));
         if (allChars.length === 0) return;
         const callMode = game.oocCallMode || 'individual';
+        // 引用标签匹配/清理，跟私聊 applyAssistantPostProcessing.ts 同一套写法，只是候选池换成 oocLogs。
+        const QUOTE_RE_DOUBLE = /\[\[(?:QU[OA]TE|引用)[：:]\s*([\s\S]*?)\]\]/;
+        const QUOTE_RE_SINGLE = /\[(?:QU[OA]TE|引用)[：:]\s*([^\]]*)\]/;
+        const QUOTE_CLEAN_DOUBLE = /\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g;
+        const QUOTE_CLEAN_SINGLE = /\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g;
+        // 把模型引用标签里的原文片段，匹配回聊天室已有记录里的那条消息（内容匹配，不是模型直接给ID）；
+        // 匹配不到就兜底到最近一条记录，避免引用标签解析失败导致整条丢弹或者引用悬空。
+        const resolveOocQuoteTarget = (
+            quotedTextRaw: string,
+            priorLogs: NonNullable<GameSession['oocLogs']>
+        ): { id: string; content: string; name: string } | undefined => {
+            const raw = (quotedTextRaw || '').trim().replace(/(?:[…⋯]+|\.{3,})$/, '').trim();
+            if (!raw || priorLogs.length === 0) return undefined;
+            const reversed = priorLogs.slice().reverse();
+            const target = reversed.find(o => o.content.includes(raw))
+                || (raw.length > 10 ? reversed.find(o => o.content.includes(raw.slice(0, 10))) : undefined)
+                || priorLogs[priorLogs.length - 1];
+            const truncated = target.content.length > 10 ? target.content.slice(0, 10) + '...' : target.content;
+            return { id: target.id, content: truncated, name: target.speakerName };
+        };
         try {
             setIsOocLoading(true);
             const deadSet = new Set(game.deadCharIds || []);
@@ -947,6 +1056,7 @@ ${playerContext}
                 .join('\n') || '（这几回合没有正式判定）';
             const recentNarrative = game.logs.slice(-6).map(l => `[${l.role}]${l.speakerName ? l.speakerName + ': ' : ''}${l.content}`).join('\n') || '（暂无剧情）';
             const recentOoc = (game.oocLogs || []).slice(-10).map(o => `${o.speakerName}: ${o.content}`).join('\n') || '（还没有人吐槽过）';
+            const fortuneSummary = buildFortuneSummaryText(game.logs); // 本场整体运势战绩（区别于上面 recentRolls 只看最近8条）
 
             let newOocLogs: Array<{ charId: string; speakerName: string; content: string }> = [];
 
@@ -982,6 +1092,9 @@ ${charListSection}
 ### 最近的判定结果（谁骰了什么、多离谱）
 ${recentRolls}
 
+### 本场整体运势战绩（从头到现在的统计，谁最欧谁最非酋）
+${fortuneSummary}
+
 ### 刚发生的剧情（仅供吐槽参考，不要续写剧情）
 ${recentNarrative}
 
@@ -989,13 +1102,15 @@ ${recentNarrative}
 ${recentOoc}
 
 ### 写作要求
-1. 如果某角色自己骰出的极端结果（大成功/大失败），可以狂喜/难以置信/得意/破防/绝望/自嘲；提到别人的骰点结果，按该角色性格来——可能羡慕、嘲笑、看热闹、安慰，或者"意料之中"地调侃。
+1. 如果某角色自己骰出的极端结果（大成功/大失败），可以狂喜/难以置信/得意/破防/绝望/自嘲；提到别人的骰点结果，按该角色性格来——可能羡慕、嘲笑、看热闹、安慰，或者"意料之中"地调侃。也可以偶尔提一嘴整场下来自己/别人是欧是非酋。
 2. 如果剧情走向让某角色觉得离谱/好笑/尴尬，可以吐槽，也可以玩梗。
 3. 可以偶尔把这局的经历和该角色私聊里聊过的事、或该角色自己最近现实里发生的事类比起来吐槽（不用每次都提，想到了才提，别硬凑）。
 4. 不是每个人都要开口——如果这几回合对某角色而言很平淡，没什么好说的，可以选择不说话。
 5. 一两句话就够，像真实聊天室发消息，不要写成剧情叙述，不要有旁白/星号动作。
+6. **【极其重要】如果某个角色想连续发好几条短消息（比真实聊天里常见的那种"一句话没说完又追加一句"），在 content 字符串里插入 JSON 转义换行 "\\n"（反斜杠加n这两个字符，不是真的敲一个回车），每个 "\\n" 会变成一个独立的消息气泡。绝对不要用空格代替换行——空格不会产生新气泡。也绝对不要直接敲真正的换行/回车，那样会破坏 JSON 格式导致整条解析失败。正常句子里的标点不用来分割气泡，请自然使用。
+7. 如果想专门接一句"聊天室里已经有的记录"中某人说的具体某句话（而不是泛泛接话），可以在该角色 content 开头加上 [[QUOTE: 被引用的那句话原文]]，这会在UI上显示成对那条消息的引用框。不是每次说话都要引用，只有确实想针对某句话回应时才用；[[QUOTE:...]] 只能出现在 content 最开头。
 
-请仅输出 JSON 数组（不要包含 Markdown 代码块），每个元素格式：
+请仅输出 JSON 数组（不要包含 Markdown 代码块，content 字段内部必须是合法 JSON 字符串，换行只能用 \\n 转义），每个元素格式：
 { "charId": "角色id", "speak": true, "content": "该角色要说的话（speak 为 false 时可以留空）" }
 
 示例：[{"charId":"c1","speak":true,"content":"哈哈我这次居然大成功了！"},{"charId":"c2","speak":false,"content":""}]`;
@@ -1013,12 +1128,14 @@ ${recentOoc}
                             return { charId: char.id, speakerName: char.name, content: item.content.trim() };
                         })
                         .filter((r): r is { charId: string; speakerName: string; content: string } => !!r);
-                } catch (e) {
+                } catch (e: any) {
                     console.warn('[GameApp] batch OOC 生成失败（不影响主线）', e);
+                    addToast(`聊天室吐槽生成失败: ${e?.message || '未知错误'}`, 'error');
                     return;
                 }
             } else {
                 // individual 模式：现有逻辑不变
+                const failedNames: string[] = [];
                 const results = await Promise.all(allChars.map(async (c) => {
                     try {
                         const charContext = await buildSyncContext([c]);
@@ -1037,6 +1154,9 @@ ${charContext}
 ${isDead ? `### 特殊状态\n你在这局里已经死亡/昏迷了，可以带点"看戏"或"倒霉"的自嘲语气来吐槽。\n\n` : ''}### 最近的判定结果（谁骰了什么、多离谱——包括你自己的）
 ${recentRolls}
 
+### 本场整体运势战绩（从头到现在的统计，谁最欧谁最非酋）
+${fortuneSummary}
+
 ### 刚发生的剧情（仅供吐槽参考，不要续写剧情）
 ${recentNarrative}
 
@@ -1049,8 +1169,10 @@ ${recentOoc}
 3. 可以偶尔把这局的经历和你私聊里聊过的事、或你自己最近现实里发生的事类比起来吐槽（不用每次都提，想到了才提，别硬凑）。
 4. 不是每次都要开口——如果这几回合很平淡，没什么好说的，可以选择不说话。
 5. 一两句话就够，像真实聊天室发消息，不要写成剧情叙述，不要有旁白/星号动作。
+6. **【极其重要】如果你想连续发好几条短消息（比真实聊天里常见的那种"一句话没说完又追加一句"），在 content 字符串里插入 JSON 转义换行 "\\n"（反斜杠加n这两个字符，不是真的敲一个回车），每个 "\\n" 会变成一个独立的消息气泡。绝对不要用空格代替换行——空格不会产生新气泡。也绝对不要直接敲真正的换行/回车，那样会破坏 JSON 格式导致整条解析失败。正常句子里的标点不用来分割气泡，请自然使用。
+7. 如果想专门接一句"聊天室里已经有的记录"中某人说的具体某句话（而不是泛泛接话），可以在 content 开头加上 [[QUOTE: 被引用的那句话原文]]，这会在UI上显示成对那条消息的引用框。不是每次说话都要引用，只有确实想针对某句话回应时才用；[[QUOTE:...]] 只能出现在 content 最开头。
 
-请仅输出 JSON，不要包含 Markdown 代码块：
+请仅输出 JSON，不要包含 Markdown 代码块，content 字段内部必须是合法 JSON 字符串（换行只能用 \\n 转义）：
 { "speak": true, "content": "你要说的话（speak 为 false 时可以留空）" }`;
 
                         const data = await fetchGameAPI(prompt, 400);
@@ -1059,12 +1181,16 @@ ${recentOoc}
                         const res = extractJson(rawContent);
                         if (!res || res.speak === false || typeof res.content !== 'string' || !res.content.trim()) return null;
                         return { charId: c.id, speakerName: c.name, content: res.content.trim() };
-                    } catch (e) {
+                    } catch (e: any) {
                         console.warn(`[GameApp] ${c.name} 皮下吐槽生成失败（不影响主线）`, e);
+                        failedNames.push(`${c.name}(${e?.message || '未知错误'})`);
                         return null;
                     }
                 }));
                 newOocLogs = results.filter((r): r is { charId: string; speakerName: string; content: string } => !!r);
+                if (failedNames.length > 0) {
+                    addToast(`聊天室吐槽生成失败: ${failedNames.join('、')}`, 'error');
+                }
             }
 
             if (newOocLogs.length === 0) return;
@@ -1072,9 +1198,21 @@ ${recentOoc}
             // 按正常聊天的分段逻辑（ChatParser.chunkText，主线聊天也用它）把每个角色的一整段吐槽
             // 拆成几条自然的短消息，并复用同款「按长度算延迟」逐条落库，让聊天室也有逐条蹦出来的节奏，
             // 不再是一次性甩一大段。角色之间、角色自己的多条之间都按顺序依次出现。
+            // allLogsSoFar 随本轮逐条追加，供引用标签解析——这样后发言的角色能引用本轮更早已"说出"的话，
+            // 不用等整轮存完才能互相引用。
+            const allLogsSoFar: NonNullable<GameSession['oocLogs']> = [...(game.oocLogs || [])];
             for (const r of newOocLogs) {
-                const chunks = ChatParser.chunkText(r.content).filter(c => ChatParser.hasDisplayContent(c));
-                const segments = chunks.length > 0 ? chunks : [r.content];
+                // 跟私聊同一套 [[QUOTE: ...]] 标签：解析出引用目标（按内容匹配回聊天室历史），再从正文里剥掉标签。
+                let contentForChunk = r.content;
+                let replyTarget: { id: string; content: string; name: string } | undefined;
+                const quoteMatch = contentForChunk.match(QUOTE_RE_DOUBLE) || contentForChunk.match(QUOTE_RE_SINGLE);
+                if (quoteMatch) {
+                    replyTarget = resolveOocQuoteTarget(quoteMatch[1], allLogsSoFar);
+                    contentForChunk = contentForChunk.replace(QUOTE_CLEAN_DOUBLE, '').replace(QUOTE_CLEAN_SINGLE, '').trim();
+                }
+                const chunks = ChatParser.chunkText(contentForChunk).filter(c => ChatParser.hasDisplayContent(c));
+                const segments = chunks.length > 0 ? chunks : [contentForChunk];
+                let pendingReplyTarget = replyTarget; // 只挂到这段话的第一条气泡上，避免每条 chunk 都顶一个引用框
                 for (const seg of segments) {
                     const delay = Math.min(Math.max(seg.length * 50, 500), 2000);
                     await new Promise(res => setTimeout(res, delay));
@@ -1084,7 +1222,10 @@ ${recentOoc}
                         speakerName: r.speakerName,
                         content: seg,
                         timestamp: Date.now(),
+                        replyTo: pendingReplyTarget,
                     };
+                    pendingReplyTarget = undefined;
+                    allLogsSoFar.push(entry);
                     setActiveGame(prev => {
                         if (!prev || prev.id !== game.id) return prev;
                         const updated = { ...prev, oocLogs: [...(prev.oocLogs || []), entry] };
@@ -1106,11 +1247,24 @@ ${recentOoc}
             speakerName: userProfile.name,
             content: oocInput.trim(),
             timestamp: Date.now(),
+            replyTo: oocReplyingTo || undefined,
         };
         const updated = { ...activeGame, oocLogs: [...(activeGame.oocLogs || []), newLog] };
         setActiveGame(updated);
         setOocInput('');
+        setOocReplyingTo(null);
         await DB.saveGame(updated);
+    };
+
+    // 长按消息 → "引用" → 把该条摘要存进 oocReplyingTo，下一条发送时带上，跟私聊长按引用交互一致。
+    const handleOocQuoteStart = () => {
+        if (!activeGame || !selectedOocId) return;
+        const target = (activeGame.oocLogs || []).find(o => o.id === selectedOocId);
+        if (!target) return;
+        const truncated = target.content.length > 10 ? target.content.slice(0, 10) + '...' : target.content;
+        setOocReplyingTo({ id: target.id, content: truncated, name: target.speakerName });
+        setOocModalType('none');
+        setSelectedOocId(null);
     };
 
     // 聊天室消息长按菜单：跟主线私聊（编辑内容/删除消息）对齐的编辑/删除，直接改 oocLogs 数组落库
@@ -2603,6 +2757,10 @@ ${logText}
                             <IdentificationCard size={22} weight="fill" />
                         </button>
                     )}
+                    {/* 运势面板/高光时刻：纯从 logs 派生，剧情/聊天室视图都能打开 */}
+                    <button onClick={() => setShowStatsModal(true)} className={`p-2 rounded hover:bg-white/10 active:scale-95 transition-transform ${theme.accent}`} title="本场运势 / 高光时刻">
+                        <Trophy size={22} weight="fill" />
+                    </button>
                     {/* Toggle Party HUD：聊天室里没有 Party HUD 面板，这个按钮在聊天室视图置灰不可用 */}
                     <button
                         onClick={() => setShowParty(!showParty)}
@@ -2747,6 +2905,107 @@ ${logText}
                 </div>
             </Modal>
 
+            {/* 运势面板 / 高光时刻 Modal：纯从 logs 派生，两个 tab 切换。
+                样式参考常见 TRPG 骰点统计/抽卡记录类 App 的排行榜（podium 名次徽章 + 堆叠条形图）与 timeline 卡片feed，
+                去掉了初版的 emoji + 5 列格子平铺，改用跟 Party HUD 一致的头像 + 图标语言，视觉上跟局内其它面板统一。 */}
+            <Modal isOpen={showStatsModal} title="本场战绩" onClose={() => setShowStatsModal(false)}>
+                <div className="flex items-center rounded-full bg-slate-100 p-1 text-xs font-bold mb-4">
+                    <button onClick={() => setStatsTab('fortune')} className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-full transition-all ${statsTab === 'fortune' ? 'bg-white shadow-sm text-purple-600' : 'text-slate-400'}`}>
+                        <ChartBar size={14} weight="bold" /> 运势面板
+                    </button>
+                    <button onClick={() => setStatsTab('highlights')} className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-full transition-all ${statsTab === 'highlights' ? 'bg-white shadow-sm text-purple-600' : 'text-slate-400'}`}>
+                        <Sparkle size={14} weight="bold" /> 高光时刻
+                    </button>
+                </div>
+                {statsTab === 'fortune' && (() => {
+                    const stats = computeFortuneStats(activeGame.logs);
+                    if (stats.length === 0) return <p className="text-sm text-slate-400 text-center py-10">还没有正式判定，运势未知</p>;
+                    const avatarForName = (name: string): string | undefined =>
+                        name === userProfile.name ? userProfile.avatar : activePlayers.find(p => p.name === name)?.avatar;
+                    const hasSpread = stats.length > 1 && stats[0].luckScore !== stats[stats.length - 1].luckScore;
+                    const rankBadge = (idx: number) => {
+                        if (idx === 0) return <span className="w-6 h-6 rounded-full bg-yellow-400 text-white flex items-center justify-center shrink-0"><Crown size={12} weight="fill" /></span>;
+                        if (idx === 1) return <span className="w-6 h-6 rounded-full bg-slate-300 text-white text-[11px] font-bold flex items-center justify-center shrink-0">2</span>;
+                        if (idx === 2) return <span className="w-6 h-6 rounded-full bg-orange-300 text-white text-[11px] font-bold flex items-center justify-center shrink-0">3</span>;
+                        return <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-400 text-[11px] font-bold flex items-center justify-center shrink-0">{idx + 1}</span>;
+                    };
+                    return (
+                        <div className="space-y-2.5">
+                            {stats.map((s, idx) => {
+                                const avatar = avatarForName(s.name);
+                                const segments = [
+                                    { count: s.criticalSuccess, color: 'bg-yellow-400' },
+                                    { count: s.success, color: 'bg-emerald-400' },
+                                    { count: s.partial, color: 'bg-slate-300' },
+                                    { count: s.failure, color: 'bg-orange-400' },
+                                    { count: s.criticalFailure, color: 'bg-red-400' },
+                                ].filter(seg => seg.count > 0);
+                                return (
+                                    <div key={s.name} className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm">
+                                        <div className="flex items-center gap-2 mb-2.5">
+                                            {rankBadge(idx)}
+                                            {avatar ? (
+                                                <img src={avatar} className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0" />
+                                            ) : (
+                                                <span className="w-7 h-7 rounded-full bg-slate-100 shrink-0" />
+                                            )}
+                                            <span className="font-bold text-sm text-slate-700 truncate">{s.name}</span>
+                                            {hasSpread && idx === 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-bold shrink-0">本场最欧</span>}
+                                            {hasSpread && idx === stats.length - 1 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-500 font-bold shrink-0">本场最非</span>}
+                                            <span className="text-[10px] text-slate-400 font-mono ml-auto shrink-0">{s.total} 次</span>
+                                        </div>
+                                        <div className="flex h-2 rounded-full overflow-hidden bg-slate-100 mb-2">
+                                            {segments.map((seg, i) => (
+                                                <div key={i} className={seg.color} style={{ width: `${(seg.count / s.total) * 100}%` }} />
+                                            ))}
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-slate-400">
+                                                大成功{s.criticalSuccess} · 成功{s.success} · 部分{s.partial} · 失败{s.failure} · 大失败{s.criticalFailure}
+                                            </span>
+                                            <span className={`text-[10px] font-mono font-bold shrink-0 ${s.luckScore > 0.5 ? 'text-yellow-600' : s.luckScore < -0.5 ? 'text-red-500' : 'text-slate-400'}`}>
+                                                {s.luckScore > 0 ? '+' : ''}{s.luckScore.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })()}
+                {statsTab === 'highlights' && (() => {
+                    const moments = computeHighlightMoments(activeGame.logs);
+                    if (moments.length === 0) return <p className="text-sm text-slate-400 text-center py-10">还没有大成功/大失败，平平无奇</p>;
+                    return (
+                        <div className="space-y-2.5">
+                            {moments.map(m => {
+                                const isCrit = m.tier === 'critical_success';
+                                return (
+                                    <div key={m.id} className={`rounded-2xl p-3.5 border ${isCrit ? 'bg-yellow-50/60 border-yellow-200' : 'bg-red-50/60 border-red-200'}`}>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${isCrit ? 'bg-yellow-400 text-white' : 'bg-red-400 text-white'}`}>
+                                                {isCrit ? <Fire size={14} weight="fill" /> : <SkullTombstone size={14} weight="fill" />}
+                                            </span>
+                                            <span className="font-bold text-sm text-slate-700 truncate">{m.speakerName}</span>
+                                            <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${isCrit ? 'bg-yellow-400 text-white' : 'bg-red-400 text-white'}`}>
+                                                {CHECK_TIER_LABELS[m.tier]}
+                                            </span>
+                                        </div>
+                                        {(m.check || m.outcome) && (
+                                            <div className="text-[10px] text-slate-400 mb-1.5">
+                                                {m.check && <>判定：{m.check}</>}{m.check && m.outcome && ' · '}{m.outcome}
+                                            </div>
+                                        )}
+                                        {/* 之前用 line-clamp-3 会把长文本硬截断，改成不截断 + 允许换行，完整展示 */}
+                                        <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap break-words">{m.content}</div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })()}
+            </Modal>
+
             {/* Delete Save Confirm Modal */}
             <Modal isOpen={!!deleteConfirmId} title="删除存档" onClose={() => setDeleteConfirmId(null)} footer={
                 <div className="flex gap-3 w-full">
@@ -2845,6 +3104,12 @@ ${logText}
                                         onPointerCancel={cancelOocPress}
                                         className={`text-xs px-3 py-2 rounded-2xl border select-none ${theme.border} ${isPlayerMsg ? `bg-white/10 ${theme.accent} font-medium` : `${theme.cardBg} ${theme.text}`}`}
                                     >
+                                        {o.replyTo && (
+                                            <div className="mb-1 text-[10px] bg-black/10 p-1.5 rounded-md border-l-2 border-current opacity-60 flex flex-col gap-0.5 max-w-full overflow-hidden">
+                                                <span className="font-bold opacity-90 truncate">{o.replyTo.name}</span>
+                                                <span className="truncate italic">"{o.replyTo.content}"</span>
+                                            </div>
+                                        )}
                                         {o.content}
                                     </div>
                                 </div>
@@ -2875,23 +3140,37 @@ ${logText}
                         </button>
                     </div>
                 ) : (
-                    <div className={`p-4 pb-[calc(1rem+var(--safe-bottom,0px))] border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20 flex gap-2`}>
-                        <input
-                            value={oocInput}
-                            onChange={e => setOocInput(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') handleOocSend(); }}
-                            placeholder="场外吐槽两句..."
-                            className={`flex-1 bg-black/20 border ${theme.border} rounded-xl px-3 py-3 outline-none text-sm placeholder-opacity-30 placeholder-current focus:bg-black/40 transition-colors`}
-                        />
-                        <button onClick={handleOocSend} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center`}>
-                            发送
-                        </button>
+                    <div className={`border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20`}>
+                        {oocReplyingTo && (
+                            <div className="flex items-center gap-2 px-4 pt-2 text-[10px] opacity-70">
+                                <div className="flex-1 flex flex-col gap-0.5 bg-black/20 border-l-2 border-current rounded-md px-2 py-1 overflow-hidden">
+                                    <span className="font-bold truncate">回复 {oocReplyingTo.name}</span>
+                                    <span className="truncate italic">"{oocReplyingTo.content}"</span>
+                                </div>
+                                <button onClick={() => setOocReplyingTo(null)} className="shrink-0 px-2 py-1 opacity-60 hover:opacity-100">取消</button>
+                            </div>
+                        )}
+                        <div className="p-4 pb-[calc(1rem+var(--safe-bottom,0px))] flex gap-2">
+                            <input
+                                value={oocInput}
+                                onChange={e => setOocInput(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleOocSend(); }}
+                                placeholder="场外吐槽两句..."
+                                className={`flex-1 bg-black/20 border ${theme.border} rounded-xl px-3 py-3 outline-none text-sm placeholder-opacity-30 placeholder-current focus:bg-black/40 transition-colors`}
+                            />
+                            <button onClick={handleOocSend} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center`}>
+                                发送
+                            </button>
+                        </div>
                     </div>
                 )}
 
-                {/* 聊天室消息长按菜单：编辑内容 / 删除消息 / 进入多选，跟主线私聊的交互对齐 */}
+                {/* 聊天室消息长按菜单：引用 / 编辑内容 / 删除消息 / 进入多选，跟主线私聊的交互对齐 */}
                 <Modal isOpen={oocModalType === 'options'} title="消息操作" onClose={() => setOocModalType('none')}>
                     <div className="space-y-3">
+                        <button onClick={handleOocQuoteStart} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors">
+                            引用
+                        </button>
                         <button onClick={handleOocEnterSelectionMode} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors">
                             多选 / 批量删除
                         </button>
@@ -3101,7 +3380,7 @@ ${logText}
                                     <span className="text-[10px] font-bold opacity-60 mb-1 ml-1 flex items-center gap-1.5">
                                         {charInfo.name}
                                         {log.diceRoll && (
-                                            <span className={`px-1.5 rounded font-mono ${diceTierBadgeClass(log.diceRoll)}`}>
+                                            <span className={`px-1.5 rounded font-mono ${diceTierBadgeClass(log.diceRoll)} ${diceTierBadgeAnim(log.diceRoll)}`}>
                                                 <DiceFive size={10} weight="fill" className="inline" /> {log.diceRoll.result}{log.diceRoll.check ? ` ${log.diceRoll.check}` : ''}
                                             </span>
                                         )}
@@ -3123,7 +3402,7 @@ ${logText}
                                 <div className="flex items-center gap-2 mb-1">
                                     <span className={`text-[10px] font-bold opacity-60`}>{log.speakerName}</span>
                                     {log.diceRoll && log.id !== pendingRollLogId && (
-                                        <span className={`text-[10px] px-1.5 rounded font-mono ${diceTierBadgeClass(log.diceRoll)}`}>
+                                        <span className={`text-[10px] px-1.5 rounded font-mono ${diceTierBadgeClass(log.diceRoll)} ${diceTierBadgeAnim(log.diceRoll)}`}>
                                             <DiceFive size={12} weight="fill" className="inline" /> {log.diceRoll.result}{log.diceRoll.check ? ` ${log.diceRoll.check}` : ''}
                                         </span>
                                     )}
