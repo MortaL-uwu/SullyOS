@@ -412,7 +412,7 @@ export const PsycheDecor: React.FC<{ spec: ThinkingChainStyleSpec; compact?: boo
 // 思考链卡片：可视化 metadata.thinkingChain。
 // 内容来源：useChatAI 抽取的 LLM reasoning_content + <think>/<thinking>/<thought>。
 // 多风格通过 resolveThinkingChainStyle() 统一渲染；齿轮触发 onOpenSettings 进入设置弹窗。
-const ThinkingChainBlock: React.FC<{
+export const ThinkingChainBlock: React.FC<{
     chain: string;
     styleId?: ThinkingChainStyleId;
     customColors?: { bg?: string; accent?: string; text?: string };
@@ -1228,6 +1228,8 @@ interface MessageItemProps {
     bubbleVariant?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
     messageSpacing?: 'compact' | 'default' | 'spacious';
     showTimestamp?: 'always' | 'hover' | 'never';
+    /** 流式预览无缝接棒时，正式消息首帧已经可见，不应再次从透明态淡入。 */
+    suppressEntranceAnimation?: boolean;
     /** Instant Push 准备中：在用户气泡左侧渲染 dot pulse */
     isPending?: boolean;
     /** 是否开启 dot pulse 指示。关掉则 pending 期间不显示任何视觉 */
@@ -1278,6 +1280,7 @@ const MessageItem = React.memo(({
     bubbleVariant = 'modern',
     messageSpacing = 'default',
     showTimestamp = 'always',
+    suppressEntranceAnimation = false,
     isPending = false,
     pendingIndicator = true,
     onMcdSendCart,
@@ -1697,6 +1700,9 @@ const MessageItem = React.memo(({
     }
 
     const showPendingDots = isUser && isPending && pendingIndicator;
+    // HTML 卡片（280px 定宽模块）默认位置就是"视觉居中"的约定：包装层打上 sully-html-wrap，
+    // 让「聊天细节微调」的贴边/缩进规则 :not() 绕开它——美化怎么开卡片都不挪窝。
+    const isHtmlCard = m.type === 'html_card';
     const commonLayout = (content: React.ReactNode) => (
             <div className={`flex items-end ${isUser ? 'justify-end' : 'justify-start'} ${marginBottom} px-3 group select-none relative transition-[padding] duration-300 ${selectionMode ? 'pl-12' : ''}`}>
                 {selectionMode && (
@@ -1731,7 +1737,7 @@ const MessageItem = React.memo(({
                     Added min-w-0 to prevent flexbox overflow issues.
                     Added explicit margins to clear absolute avatars.
                 */}
-                <div className={`relative max-w-[72%] min-w-0 ${!isUser ? 'ml-12' : 'mr-12'}`}>
+                <div className={`relative max-w-[72%] min-w-0 ${!isUser ? 'ml-12' : 'mr-12'} ${isHtmlCard ? 'sully-html-wrap' : ''}`}>
                     <div
                         aria-hidden="true"
                         className={`absolute -right-10 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center pointer-events-none transition-all duration-150 ${isReplyReady ? 'bg-indigo-500 text-white shadow-md shadow-indigo-200' : 'bg-white/90 text-slate-400 shadow-sm'}`}
@@ -3233,8 +3239,8 @@ const MessageItem = React.memo(({
 
     return commonLayout(
         <div className={isVoiceOnlyMsg
-            ? 'relative animate-fade-in'
-            : `relative ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm '}px-5 py-3 animate-fade-in ${bubbleVariant === 'outline' ? '' : 'border border-black/5 '}active:scale-[0.98] transition-transform overflow-visible ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
+            ? `relative ${suppressEntranceAnimation ? '' : 'animate-fade-in'}`
+            : `relative ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm '}px-5 py-3 ${suppressEntranceAnimation ? '' : 'animate-fade-in'} ${bubbleVariant === 'outline' ? '' : 'border border-black/5 '}active:scale-[0.98] transition-transform overflow-visible ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
             style={isVoiceOnlyMsg ? undefined : containerStyle}>
 
             {/* Layer 1: Background Image with Independent Opacity */}
@@ -3512,6 +3518,7 @@ const MessageItem = React.memo(({
            prev.bubbleVariant === next.bubbleVariant &&
            prev.messageSpacing === next.messageSpacing &&
            prev.showTimestamp === next.showTimestamp &&
+           prev.suppressEntranceAnimation === next.suppressEntranceAnimation &&
            prev.voiceData?.url === next.voiceData?.url &&
            prev.voiceLoading === next.voiceLoading &&
            prev.isVoicePlaying === next.isVoicePlaying;
