@@ -461,11 +461,14 @@ const ThemeMaker: React.FC = () => {
     const [showApplySheet, setShowApplySheet] = useState(false);
     const [applySelection, setApplySelection] = useState<Set<string>>(new Set());
     const [assetUrlDraft, setAssetUrlDraft] = useState<Record<'bg' | 'deco' | 'avatarDeco', string>>({ bg: '', deco: '', avatarDeco: '' });
+    const [isThemeLibraryOpen, setIsThemeLibraryOpen] = useState(false);
+    const [themeLibrarySearch, setThemeLibrarySearch] = useState('');
     
     // Local state for sliders
     const [paddingVal, setPaddingVal] = useState(12);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const themeImportInputRef = useRef<HTMLInputElement>(null);
     const decorationInputRef = useRef<HTMLInputElement>(null);
     const avatarDecoInputRef = useRef<HTMLInputElement>(null);
     const cssTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -531,6 +534,35 @@ const ThemeMaker: React.FC = () => {
         setPaddingVal(extractPaddingFromCss(copy.customCss || ''));
         addToast(`正在修改「${theme.name}」`, 'info');
     });
+
+    // 导入别人分享的 .sully-bubble.json（exportSavedTheme 的逆操作，此前只有导出没有入口）。
+    // 兼容两种形态：完整导出包 {kind:'sullyos-chat-theme', theme} 或直接一个 ChatTheme 对象。
+    // 永远发新 id（防覆盖自己已有作品）；CSS 走与保存一致的可渲染性校验，坏 CSS 不入库。
+    const importThemeFile = async (file: File) => {
+        try {
+            const parsed = JSON.parse(await file.text());
+            const raw = (parsed && typeof parsed === 'object' && parsed.kind === 'sullyos-chat-theme') ? parsed.theme : parsed;
+            if (!raw || typeof raw !== 'object' || !raw.user || !raw.ai) {
+                addToast('导入失败：不是有效的气泡主题文件', 'error');
+                return;
+            }
+            const css = typeof raw.customCss === 'string' ? raw.customCss : '';
+            if (css) {
+                const renderability = runCssRenderabilityCheck(css, validateCustomCss(css));
+                if (!renderability.ok) {
+                    addToast(`导入失败：${renderability.message}`, 'error');
+                    return;
+                }
+            }
+            const baseName = String(raw.name || '导入的气泡').slice(0, 30);
+            const name = customThemes.some(t => t.name === baseName) ? `${baseName}（导入）` : baseName;
+            const imported: ChatTheme = { ...raw, id: `custom-${Date.now()}-${Math.floor(Math.random() * 1e4)}`, type: 'custom', name };
+            addCustomTheme(imported);
+            addToast(`已导入「${name}」，在作品区可选用`, 'success');
+        } catch {
+            addToast('导入失败：无法解析文件', 'error');
+        }
+    };
 
     const exportSavedTheme = (theme: ChatTheme) => {
         const blob = new Blob([JSON.stringify({ kind: 'sullyos-chat-theme', version: 1, theme }, null, 2)], { type: 'application/json' });
@@ -919,11 +951,15 @@ const ThemeMaker: React.FC = () => {
     };
 
     const parsedBgColor = parseColorValue(activeStyle.backgroundColor);
+    const visibleSavedThemes = useMemo(() => {
+        const query = themeLibrarySearch.trim().toLowerCase();
+        return query ? customThemes.filter(theme => (theme.name || '').toLowerCase().includes(query)) : customThemes;
+    }, [customThemes, themeLibrarySearch]);
 
     return (
         <div className="h-full w-full bg-slate-50 flex flex-col font-light relative">
             {/* Header */}
-            <div className="bg-white/70 backdrop-blur-md border-b border-white/40 shrink-0 z-20" style={{ paddingTop: 'var(--safe-top)' }}>
+            <div className="bg-white/70 backdrop-blur-md border-b border-white/40 shrink-0 z-20 sticky top-0" style={{ paddingTop: 'max(var(--safe-top, 0px), env(safe-area-inset-top, 0px))' }}>
             <div className="flex items-center px-4 py-3 justify-between">
                 <div className="flex items-center gap-2">
                     <button onClick={requestClose} className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform">
@@ -949,17 +985,41 @@ const ThemeMaker: React.FC = () => {
 
             {/* 用户作品区：保存后的气泡可回到工坊继续编辑，也可单独导出分享。 */}
             <section className="shrink-0 bg-white/80 border-b border-slate-100 px-4 py-3">
-                <div className="flex items-center justify-between mb-2">
+                <button type="button" onClick={() => setIsThemeLibraryOpen(prev => !prev)} aria-expanded={isThemeLibraryOpen} className="w-full flex items-center justify-between text-left">
                     <div>
                         <h2 className="text-xs font-bold text-slate-600">我的自定义气泡</h2>
-                        <p className="text-[10px] text-slate-400 mt-0.5">导出作品，或载入后再次修改</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">点击{isThemeLibraryOpen ? '收起' : '展开并选择'} · 可搜索、导入、修改或导出</p>
                     </div>
-                    <span className="text-[10px] text-slate-400">{customThemes.length} 套</span>
-                </div>
-                {customThemes.length > 0 ? (
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                        {customThemes.map((theme: ChatTheme) => (
-                            <div key={theme.id} className={`min-w-[176px] rounded-2xl border p-2.5 ${editingTheme.id === theme.id ? 'border-indigo-300 bg-indigo-50/70' : 'border-slate-200 bg-white'}`}>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400">{customThemes.length} 套</span>
+                        <span className={`text-slate-400 transition-transform ${isThemeLibraryOpen ? 'rotate-180' : ''}`} aria-hidden>⌄</span>
+                    </div>
+                </button>
+                {isThemeLibraryOpen && (
+                    <div className="mt-2 flex justify-end">
+                        <input
+                            type="file"
+                            ref={themeImportInputRef}
+                            className="hidden"
+                            accept=".json,application/json"
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) importThemeFile(f); e.target.value = ''; }}
+                        />
+                        <button
+                            onClick={() => themeImportInputRef.current?.click()}
+                            className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-600 text-[11px] font-bold active:scale-95 transition-transform"
+                        >
+                            ⬆ 导入气泡文件
+                        </button>
+                    </div>
+                )}
+                {isThemeLibraryOpen && (customThemes.length > 0 ? (
+                    <div className="mt-3">
+                        {customThemes.length > 6 && (
+                            <input value={themeLibrarySearch} onChange={e => setThemeLibrarySearch(e.target.value)} placeholder="搜索我的气泡…" className="w-full mb-2.5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs outline-none focus:border-indigo-300" />
+                        )}
+                        <div className="grid grid-cols-2 gap-2 max-h-[42vh] overflow-y-auto no-scrollbar pb-1">
+                        {visibleSavedThemes.map((theme: ChatTheme) => (
+                            <div key={theme.id} className={`min-w-0 rounded-2xl border p-2.5 ${editingTheme.id === theme.id ? 'border-indigo-300 bg-indigo-50/70' : 'border-slate-200 bg-white'}`}>
                                 <div className="flex items-center gap-2 min-w-0">
                                     <span className="flex -space-x-1 shrink-0">
                                         <span className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ background: theme.user?.backgroundColor || '#6366f1' }} />
@@ -968,17 +1028,19 @@ const ThemeMaker: React.FC = () => {
                                     <span className="text-xs font-bold text-slate-700 truncate">{theme.name}</span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-1.5 mt-2.5">
-                                    <button onClick={() => editSavedTheme(theme)} className="py-1.5 rounded-xl bg-indigo-50 text-indigo-600 text-[11px] font-bold">再次修改</button>
+                                    <button onClick={() => editSavedTheme(theme)} className="py-1.5 rounded-xl bg-indigo-50 text-indigo-600 text-[11px] font-bold">选择载入</button>
                                     <button onClick={() => exportSavedTheme(theme)} className="py-1.5 rounded-xl bg-slate-100 text-slate-600 text-[11px] font-bold">导出</button>
                                 </div>
                             </div>
                         ))}
+                        </div>
+                        {visibleSavedThemes.length === 0 && <div className="py-4 text-center text-[10px] text-slate-400">没有找到「{themeLibrarySearch.trim()}」</div>}
                     </div>
                 ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-2.5 text-[11px] text-slate-400">
+                    <div className="mt-3 rounded-2xl border border-dashed border-slate-200 px-3 py-2.5 text-[11px] text-slate-400">
                         还没有作品。完成设计并保存后，会陈列在这里。
                     </div>
-                )}
+                ))}
             </section>
 
             {/* Preview Area (Realistic Chat Row) */}
@@ -1505,7 +1567,10 @@ const ThemeMaker: React.FC = () => {
                             <div className="text-base font-bold text-slate-700">✅ 已存进气泡库 · 给谁穿上？</div>
                             <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
                                 勾选角色，「{editingTheme.name}」就会用在 ta 的聊天里；取消勾选则换回默认气泡。
-                                之后也能随时在 <b>聊天 → 顶栏会话面板 → 气泡样式</b> 里切换。
+                                想全局生效就点「全选」。之后也能随时在 <b>聊天 → 顶栏会话面板 → 气泡样式</b> 里切换。
+                            </p>
+                            <p className="mt-1 text-[10px] text-slate-400 leading-relaxed">
+                                气泡主题会盖过「外观 → 聊天界面」的可视化设置；但角色手写的「白框」自定义 CSS 优先级更高，撞上时以 CSS 为准。
                             </p>
                             <div className="mt-2.5 flex items-center gap-2">
                                 <button
