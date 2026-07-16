@@ -359,7 +359,10 @@ const previewBubbleStyle = (bubble: string, isUser: boolean, theme: OSTheme): Re
         background: isUser ? primary : '#ffffff',
         color: isUser ? '#ffffff' : '#334155',
         borderRadius: bubble === 'ios' ? 24 : bubble === 'wechat' ? 18 : 20,
-        padding: '10px 14px',
+        // 迷你预览统一 12px 小字 + 紧凑内边距：预览必须和设置区同屏可见，个头是第一约束。
+        // 用户在「细节微调」里设了字号时由 previewFineTextStyle 覆盖。
+        padding: '8px 12px',
+        fontSize: 12,
         maxWidth: '72%',
     };
     if (bubble === 'outline') return { ...base, background: 'transparent', color: isUser ? primary : '#475569', border: `2px solid ${isUser ? primary : '#cbd5e1'}` };
@@ -407,6 +410,8 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
     const pendingIndicator = theme.chatPendingIndicator !== false;
     const showHeaderBuffs = theme.chatHideHeaderBuffs !== true;
     const [showStyleHelp, setShowStyleHelp] = useState(false);
+    // 小屏兜底：预览再紧凑也可能挤占设置区，允许一键收成一条细栏。
+    const [isPreviewCollapsed, setIsPreviewCollapsed] = useState(false);
 
     // 调试区左右翻页：预览常驻在上，下面一页一个主题，改哪项都能立刻在预览里看到。
     const PAGE_TITLES = ['快速预设', '聊天壳', '头部', '气泡与头像', '细节微调', '表情包与输入栏'];
@@ -442,23 +447,35 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
     const headerTextClass = headerStyle === 'discord' ? 'text-white' : headerStyle === 'pixel' ? 'text-[#fff7ed]' : 'text-slate-700';
     const previewGap = messageSpacing === 'compact' ? 'gap-1.5' : messageSpacing === 'spacious' ? 'gap-4' : 'gap-2.5';
     const previewPad = headerDensity === 'compact' ? 'px-4 py-3' : headerDensity === 'airy' ? 'px-5 py-[18px]' : 'px-4 py-3.5';
+    // 文案刻意精简：预览要和下方设置区同屏，每条消息控制在一行左右。
+    // 保留 2+2 的同角色连发结构，「头像出现频率」的连续共用效果才演示得出来。
     const previewMessages = [
-        { id: 'ai-1', role: 'assistant', text: '今天这套聊天壳已经比之前像样多了。' },
-        { id: 'ai-2', role: 'assistant', text: '现在还能决定头像是连续共用，还是每条都显示。' },
-        { id: 'user-1', role: 'user', text: '对，我想把头像频率也做成可以 DIY 的。' },
-        { id: 'user-2', role: 'user', text: '这样不同软件的味道会更明显。' },
+        { id: 'ai-1', role: 'assistant', text: '这套聊天壳像样多了。' },
+        { id: 'ai-2', role: 'assistant', text: '头像还能选共用或每条都显示。' },
+        { id: 'user-1', role: 'user', text: '对，头像频率也能 DIY。' },
+        { id: 'user-2', role: 'user', text: '不同软件的味道更明显了。' },
     ] as const;
 
     return (
         <div className="space-y-5">
             {/* 实时预览：sticky 常驻顶部——往下翻到哪一页、改哪个选项，效果都始终看得见。
-                -top-5 抵消外层滚动容器的 p-5 内边距，贴住 tab 栏下沿。 */}
+                -top-5 抵消外层滚动容器的 p-5 内边距，贴住 tab 栏下沿。
+                预览刻意做迷你（短文案 + 12px 小字），保证手机上预览和设置区同屏；还嫌挤可以点标题收起。 */}
             <div className="sticky -top-5 z-20 -mx-1 bg-slate-50 px-1 pb-1 pt-1">
             <section className="rounded-3xl border border-slate-100 bg-white p-3 shadow-sm">
-                <div className="mb-2 flex items-baseline justify-between px-1">
+                <button
+                    type="button"
+                    onClick={() => setIsPreviewCollapsed(v => !v)}
+                    aria-expanded={!isPreviewCollapsed}
+                    className={`flex w-full items-baseline justify-between px-1 ${isPreviewCollapsed ? '' : 'mb-2'}`}
+                >
                     <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-400">实时预览</h2>
-                    <span className="text-[9px] text-slate-300">全局设置 · 改动立即反映</span>
-                </div>
+                    <span className="flex items-center gap-1 text-[9px] text-slate-300">
+                        {isPreviewCollapsed ? '点击展开' : '全局设置 · 改动立即反映'}
+                        <span className={`text-slate-400 transition-transform ${isPreviewCollapsed ? '' : 'rotate-180'}`} aria-hidden>⌄</span>
+                    </span>
+                </button>
+                {!isPreviewCollapsed && (
                 <div className={`sully-chat-root overflow-hidden rounded-[28px] ${shellClass(chromeStyle)}`} style={backgroundStyleForPreview(backgroundStyle, chromeStyle)}>
                     {/* 实时套用「白框自定义」CSS：预览各零件挂了同样的 .sully-chat-* 钩子，故能即时反映。
                         注意：预览外壳 overflow-hidden 会裁掉溢出效果（如波浪下沿），真聊天里完整可见。 */}
@@ -482,8 +499,30 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
                             </div>
                             {headerAlign !== 'center' && <div className={`sully-chat-token text-[9px] font-mono ${headerStyle === 'discord' ? 'text-slate-400' : headerStyle === 'pixel' ? 'text-[#f3ddc7]' : 'text-slate-400'}`}>42 tok</div>}
                         </div>
+                        {/* 情绪 buff 栏：挂真聊天同款 .sully-chat-buffs 钩子（子元素必须是 button），
+                            「显示情绪栏」开关和白框 CSS 的 .sully-chat-buffs button 美化都能即时预览。 */}
+                        {showHeaderBuffs && (
+                            <div className={`sully-chat-buffs mt-1.5 flex items-center gap-0.5 ${headerAlign === 'center' ? 'justify-center' : ''}`}>
+                                {['😌 平静', '☕ 想喝咖啡'].map((buff) => (
+                                    <button
+                                        key={buff}
+                                        type="button"
+                                        tabIndex={-1}
+                                        className={`pointer-events-none shrink-0 truncate rounded-[10px] border px-1 py-[3px] text-[8px] font-bold leading-none ${
+                                            headerStyle === 'discord'
+                                                ? 'border-white/15 bg-white/10 text-slate-200'
+                                                : headerStyle === 'pixel'
+                                                  ? 'border-[#8f674a] bg-[#fff7ed] text-[#8f674a]'
+                                                  : 'border-amber-200 bg-amber-50 text-amber-600'
+                                        }`}
+                                    >
+                                        {buff}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
-                    <div className={`flex min-h-[150px] flex-col p-3 ${previewGap}`}>
+                    <div className={`flex min-h-[110px] flex-col p-3 ${previewGap}`}>
                         {previewMessages.map((message, index) => {
                             const isUser = message.role === 'user';
                             const nextRole = index < previewMessages.length - 1 ? previewMessages[index + 1].role : null;
@@ -515,6 +554,7 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
                         </div>
                     </div>
                 </div>
+                )}
             </section>
             </div>
 
