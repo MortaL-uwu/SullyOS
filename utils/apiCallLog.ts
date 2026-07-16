@@ -261,8 +261,27 @@ function contentToText(content: unknown): string {
 
 const BLOCK_LABEL_MAX = 40;
 
+/** 行是块头？返回块名（`## / ### 标题` 或 `[System: …]`），否则 null。 */
+const matchBlockHeader = (line: string): string | null => {
+    const m = line.match(/^\s*#{2,3}\s+(.+?)\s*$/) || line.match(/^\s*(\[System:[^\]]*\])/);
+    return m ? m[1].trim() : null;
+};
+
 /**
- * 把一条 system 消息按块头切开：`## / ### 标题` 行或 `[System: …]` 行开新块。
+ * 计算哪些行是有效的 ``` 围栏开合线。围栏必须**成对**才生效：用户数据（记忆
+ * 摘要等）里落单的半个 ``` 会把围栏状态永久翻转，后面所有块头全被吞进上一块
+ * （实测：62K 的「记忆系统」行吞掉了对话历史+评估框架）。奇数个时最后一个不算。
+ */
+function fenceToggleLines(lines: string[]): Set<number> {
+    const indices: number[] = [];
+    lines.forEach((line, i) => { if (/^\s*```/.test(line)) indices.push(i); });
+    if (indices.length % 2 === 1) indices.pop();
+    return new Set(indices);
+}
+
+/**
+ * 把一条 system 消息按块头切开。``` 围栏内的行不算块头——行为规范里的日记
+ * 示例（`## 今天的小确幸` 等）都在代码块里，不加围栏感知会被误切成独立块。
  * 一个块头都没有的短消息（双语 / MCP 尾部提醒等）整条算一块，取首行当名字。
  */
 function splitSystemBlocks(text: string): PromptBlockStat[] {
@@ -270,11 +289,16 @@ function splitSystemBlocks(text: string): PromptBlockStat[] {
     let label = '（开头·未分块部分）';
     let chars = 0;
     let sawHeader = false;
-    for (const line of text.split('\n')) {
-        const header = line.match(/^\s*#{2,3}\s+(.+?)\s*$/) || line.match(/^\s*(\[System:[^\]]*\])/);
+    let inFence = false;
+    const lines = text.split('\n');
+    const fenceAt = fenceToggleLines(lines);
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (fenceAt.has(i)) inFence = !inFence;
+        const header = inFence ? null : matchBlockHeader(line);
         if (header) {
             if (chars > 0) out.push({ label, chars });
-            label = header[1].trim().slice(0, BLOCK_LABEL_MAX);
+            label = header.slice(0, BLOCK_LABEL_MAX);
             chars = line.length + 1;
             sawHeader = true;
         } else {
@@ -288,6 +312,35 @@ function splitSystemBlocks(text: string): PromptBlockStat[] {
     }
     return out;
 }
+
+/**
+ * 已知的「写死的固定骨架」块名前缀（规则/格式/钢印类，内容不随用户数据变化）。
+ * 构成面板的展示层把命中的块合并成一行「固定提示词」，突出真正能优化的数据块。
+ * 新增固定提示词块时记得把块头加进来（漏加只是显示散一点，无功能影响）。
+ */
+const FIXED_PROMPT_LABEL_PREFIXES = [
+    '聊天 App 行为规范',
+    '表达底线',
+    '🎤 语音消息功能',
+    '关于对方的表达',
+    '最后，回到你自己',
+    '【音乐互动工具】',
+    '关于《彼方》',
+    '[MCP 工具 ON',
+    '[Reminder:',
+    // 思考链提示词（thinkingChainPrompt.ts）的章节头
+    '语言铁律',
+    '你不是在演',
+    '起点:你本来在干嘛',
+    '同时被激活的多个东西',
+    '别急着安慰',
+    '别造谣',
+    '温度:脑内比嘴上更吵',
+    'Thinking 写法总则',
+];
+
+export const isFixedPromptBlockLabel = (label: string): boolean =>
+    FIXED_PROMPT_LABEL_PREFIXES.some(prefix => label.startsWith(prefix));
 
 const MAX_BREAKDOWN_BLOCKS = 48;
 
@@ -310,8 +363,16 @@ export function buildPromptBreakdown(body: unknown): PromptBlockStat[] | undefin
         // user 消息发送——不拆的话构成面板只会显示「用户消息 ×1 · 100%」，看不出内里。
         // 巨型且含多个块头的 user 消息按 system 同款规则拆块；普通聊天消息不受影响。
         const HUGE_USER_MSG_SPLIT_CHARS = 8000;
-        const countBlockHeaders = (text: string): number =>
-            text.split('\n').reduce((n, line) => n + (/^\s*(#{2,3}\s+.+|\[System:[^\]]*\])/.test(line) ? 1 : 0), 0);
+        const countBlockHeaders = (text: string): number => {
+            let n = 0, inFence = false;
+            const lines = text.split('\n');
+            const fenceAt = fenceToggleLines(lines);
+            for (let i = 0; i < lines.length; i++) {
+                if (fenceAt.has(i)) inFence = !inFence;
+                if (!inFence && matchBlockHeader(lines[i])) n++;
+            }
+            return n;
+        };
         for (const msg of messages) {
             const text = contentToText(msg?.content);
             if (msg?.role === 'system') {
