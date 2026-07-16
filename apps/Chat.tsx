@@ -209,6 +209,15 @@ const Chat: React.FC = () => {
     // 瑞幸聊天点单模式 (点"瑞一杯"激活: 角色直接调真实工具, 注入定位)
     const luckinChatRef = useRef<import('../utils/luckinToolBridge').LuckinChatState | undefined>(undefined);
 
+    // 生成闭包的回落守卫：triggerAI 的异步闭包在用户切到别的角色后才完成时（Chat 内
+    // 切角色不卸载组件），迟到的 setMessages 会把旧角色的消息灌进当前会话视图。
+    // 按消息 charId 丢弃不属于当前会话的回落——DB 已落库，且 OSContext 会因
+    // chat-gen-reply-arrived bump lastMsgTimestamp，切回该角色时自然取回。
+    const setMessagesFromGen = useCallback((msgs: Message[]) => {
+        if (msgs.some(m => m.charId && m.charId !== activeCharIdRef.current)) return;
+        setMessages(msgs);
+    }, []);
+
     // --- Initialize Hook ---
     const { isTyping, streamingBubbles, streamingThinking, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
         char,
@@ -219,7 +228,7 @@ const Chat: React.FC = () => {
         categories: visibleCategories,
         addToast,
         showError,
-        setMessages,
+        setMessages: setMessagesFromGen,
         onStreamPreviewHandover: registerStreamPreviewHandover,
         realtimeConfig,
         translationConfig: translationEnabled
