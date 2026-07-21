@@ -5,7 +5,7 @@ import { DB } from '../utils/db';
 import { modelRejectsSamplingParams, stripSamplingParams, isSamplingParamError } from '../utils/samplingParamCompat';
 import { extractImagesInPlace, deepCloneForExport } from '../utils/backupExport';
 import { isBlobRef, getBlobForRef, migrateDataUrlToRef, migrateAppearancePresetBlobRefs, resolveBlobRefsDeep, BLOBREF_PREFIX, deleteBlobRefIfUnreferenced } from '../utils/blobRef';
-import { isLegacyDefaultWallpaper } from '../utils/wallpaperCompat';
+import { LEGACY_DEFAULT_WALLPAPER, isLegacyDefaultWallpaper, shouldPreserveLegacyDefaultWallpaper } from '../utils/wallpaperCompat';
 import { migrateSharkpanAssets } from '../utils/sharkpanAssetMigration';
 import { writeV2Backup, assembleV2Backup, type BackupManifest, type ZipFileWriter, type ZipFileReader } from '../utils/backupFormat';
 import { encodeVectorsForBackup } from '../utils/memoryPalace/db';
@@ -396,11 +396,26 @@ export const DEFAULT_PAPER_APPEARANCE = {
   saturation: 14,
   lightness: 46,
   contentColor: '#4b4136',
+  desktopVariant: 'paper',
+} as const;
+
+/** 用户主动选择的最初默认界面：粉绿渐变、白色文字与白色玻璃桌面组件。 */
+export const NOSTALGIA_APPEARANCE = {
+  skin: 'default',
+  desktopVariant: 'nostalgia',
+  hue: 245,
+  saturation: 25,
+  lightness: 65,
+  contentColor: '#ffffff',
+  wallpaper: LEGACY_DEFAULT_WALLPAPER,
+  darkMode: false,
+  nowPlayingWidgetLight: false,
 } as const;
 
 /** 只迁移旧系统默认配色；任一项被用户改过都保留，避免把自定义主题误重置。 */
 const migrateLegacyDefaultPalette = (theme: OSTheme): OSTheme => {
   const next = { ...theme };
+  next.desktopVariant = 'paper';
   if (!next.contentColor || next.contentColor.toLowerCase() === '#ffffff') {
     next.contentColor = DEFAULT_PAPER_APPEARANCE.contentColor;
   }
@@ -458,11 +473,11 @@ const replaceWallpaperAssetPointer = async (assetId: 'wallpaper' | 'lock_wallpap
  *   · http(s) / 空 / 渐变 → 删除 assets 指针，原样返回。
  * 传入空字符串（重置）时原样返回，交给上层用 DEFAULT_WALLPAPER 兜底。
  */
-const resolveWallpaperStoredValue = async (w: string): Promise<string> => {
+const resolveWallpaperStoredValue = async (w: string, preserveLegacyDefault = false): Promise<string> => {
     const revokePrev = () => {
         if (currentWallpaperObjUrl) { try { URL.revokeObjectURL(currentWallpaperObjUrl); } catch { /* ignore */ } currentWallpaperObjUrl = null; }
     };
-    if (isLegacyDefaultWallpaper(w)) {
+    if (isLegacyDefaultWallpaper(w) && !preserveLegacyDefault) {
         await replaceWallpaperAssetPointer('wallpaper', null);
         revokePrev();
         return DEFAULT_WALLPAPER;
@@ -1127,7 +1142,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                  const parsed = JSON.parse(savedThemeStr);
                  loadedTheme = { ...loadedTheme, ...parsed };
                  // 仅迁移旧系统默认值；用户自定义过的壁纸、文字色和主题色全部保留。
-                 if (isLegacyDefaultWallpaper(loadedTheme.wallpaper) || (isPaperWallpaper(loadedTheme.wallpaper) && loadedTheme.wallpaper !== DEFAULT_WALLPAPER)) {
+                 const preserveNostalgia = shouldPreserveLegacyDefaultWallpaper(loadedTheme.wallpaper, loadedTheme.desktopVariant);
+                 if ((!preserveNostalgia && isLegacyDefaultWallpaper(loadedTheme.wallpaper)) || (isPaperWallpaper(loadedTheme.wallpaper) && loadedTheme.wallpaper !== DEFAULT_WALLPAPER)) {
                      loadedTheme.wallpaper = DEFAULT_WALLPAPER;
                      loadedTheme = migrateLegacyDefaultPalette(loadedTheme);
                  }
@@ -1184,12 +1200,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                     // assets 'wallpaper' 现在存的是指针（blobref 令牌 / 旧 data: / http）。
                     // 解析成可渲染 url（令牌→objectURL；旧 data: 顺手迁移成 Blob）。
                     const legacyAssetWallpaper = isLegacyDefaultWallpaper(assetMap['wallpaper']);
-                    if (legacyAssetWallpaper || isPaperWallpaper(assetMap['wallpaper'])) {
+                    const preserveNostalgia = shouldPreserveLegacyDefaultWallpaper(assetMap['wallpaper'], loadedTheme.desktopVariant);
+                    if ((legacyAssetWallpaper && !preserveNostalgia) || isPaperWallpaper(assetMap['wallpaper'])) {
                         loadedTheme.wallpaper = DEFAULT_WALLPAPER;
                         if (legacyAssetWallpaper) loadedTheme = migrateLegacyDefaultPalette(loadedTheme);
                         await DB.deleteAsset('wallpaper');
                     } else {
-                        loadedTheme.wallpaper = await resolveWallpaperStoredValue(assetMap['wallpaper']);
+                        loadedTheme.wallpaper = await resolveWallpaperStoredValue(assetMap['wallpaper'], preserveNostalgia);
                     }
                 }
                 if (assetMap['lock_wallpaper']) {
@@ -2329,8 +2346,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     // 不是 blobref 令牌。
     if (wallpaper !== undefined) {
         const legacyWallpaper = isLegacyDefaultWallpaper(wallpaper);
-        newTheme.wallpaper = await resolveWallpaperStoredValue(wallpaper);
-        if (legacyWallpaper) Object.assign(newTheme, migrateLegacyDefaultPalette(newTheme));
+        const preserveNostalgia = shouldPreserveLegacyDefaultWallpaper(wallpaper, newTheme.desktopVariant);
+        newTheme.wallpaper = await resolveWallpaperStoredValue(wallpaper, preserveNostalgia);
+        if (legacyWallpaper && !preserveNostalgia) Object.assign(newTheme, migrateLegacyDefaultPalette(newTheme));
     }
     if ('lockWallpaper' in updates) {
         newTheme.lockWallpaper = await resolveLockWallpaperStoredValue(lockWallpaper);
@@ -2804,7 +2822,15 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       }
       // 壁纸改存 Blob：把预设里的指针（blobref 令牌 / 旧 data:）落库并解析成 objectURL 再进 state。
       if (sanitizedPresetTheme.wallpaper !== undefined && typeof sanitizedPresetTheme.wallpaper === 'string') {
-          sanitizedPresetTheme.wallpaper = await resolveWallpaperStoredValue(sanitizedPresetTheme.wallpaper);
+          const legacyWallpaper = isLegacyDefaultWallpaper(sanitizedPresetTheme.wallpaper);
+          const preserveNostalgia = shouldPreserveLegacyDefaultWallpaper(
+              sanitizedPresetTheme.wallpaper,
+              sanitizedPresetTheme.desktopVariant,
+          );
+          sanitizedPresetTheme.wallpaper = await resolveWallpaperStoredValue(sanitizedPresetTheme.wallpaper, preserveNostalgia);
+          if (legacyWallpaper && !preserveNostalgia) {
+              Object.assign(sanitizedPresetTheme, migrateLegacyDefaultPalette(sanitizedPresetTheme));
+          }
       }
       if ('lockWallpaper' in sanitizedPresetTheme) {
           sanitizedPresetTheme.lockWallpaper = await resolveLockWallpaperStoredValue(sanitizedPresetTheme.lockWallpaper);
