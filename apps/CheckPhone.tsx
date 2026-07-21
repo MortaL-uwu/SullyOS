@@ -288,8 +288,9 @@ const CheckPhone: React.FC = () => {
     const [msgSelectMode, setMsgSelectMode] = useState(false);
     const [selectedMsgIdx, setSelectedMsgIdx] = useState<number[]>([]);
 
-    // Custom App Creation State
+    // Custom App Creation/Edit State（共用一套表单，editingAppId 非空即编辑模式）
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [editingAppId, setEditingAppId] = useState<string | null>(null);
     const [newAppName, setNewAppName] = useState('');
     const [newAppIcon, setNewAppIcon] = useState('✨');
     const [newAppColor, setNewAppColor] = useState('#8b9cff');
@@ -535,8 +536,41 @@ const CheckPhone: React.FC = () => {
         addToast('App 已卸载', 'success');
     };
 
+    const resetAppForm = () => {
+        setEditingAppId(null);
+        setNewAppName('');
+        setNewAppIcon('✨');
+        setNewAppColor('#8b9cff');
+        setNewAppPrompt('');
+        setNewAppLayout('generic');
+    };
+
+    const handleOpenEditApp = (app: PhoneCustomApp) => {
+        setEditingAppId(app.id);
+        setNewAppName(app.name);
+        setNewAppIcon(app.icon || '✨');
+        setNewAppColor(app.color || '#8b9cff');
+        setNewAppPrompt(app.prompt || '');
+        setNewAppLayout(app.layout || 'generic');
+        setShowCreateModal(true);
+    };
+
     const handleCreateCustomApp = () => {
         if (!targetChar || !newAppName || !newAppPrompt) return;
+        const currentApps = targetChar.phoneState?.customApps || [];
+
+        if (editingAppId) {
+            const nextApps = currentApps.map(a => a.id === editingAppId
+                ? { ...a, name: newAppName, icon: newAppIcon, color: newAppColor, prompt: newAppPrompt, layout: newAppLayout }
+                : a);
+            updateCharacter(targetChar.id, {
+                phoneState: { records: targetChar.phoneState?.records || [], ...targetChar.phoneState, customApps: nextApps }
+            });
+            setShowCreateModal(false);
+            resetAppForm();
+            addToast(`已保存 ${newAppName}`, 'success');
+            return;
+        }
 
         const newApp: PhoneCustomApp = {
             id: `app-${Date.now()}`,
@@ -547,15 +581,12 @@ const CheckPhone: React.FC = () => {
             layout: newAppLayout
         };
 
-        const currentApps = targetChar.phoneState?.customApps || [];
         updateCharacter(targetChar.id, {
             phoneState: { records: targetChar.phoneState?.records || [], ...targetChar.phoneState, customApps: [...currentApps, newApp] }
         });
 
         setShowCreateModal(false);
-        setNewAppName('');
-        setNewAppPrompt('');
-        setNewAppLayout('generic');
+        resetAppForm();
         setPage(1);
         addToast(`已安装 ${newAppName}`, 'success');
     };
@@ -3134,8 +3165,10 @@ ${olderText}
                     const count = records.filter(r => r.type === app.id).length;
                     return (
                         <div key={app.id} className="relative group">
-                            <button onClick={() => setActiveAppId(app.id)}
-                                className="w-full rounded-[24px] p-4 text-left overflow-hidden border border-white/[0.07] bg-white/[0.035] backdrop-blur-xl active:scale-[0.98] transition min-h-[130px] flex flex-col justify-between">
+                            <button
+                                onClick={() => { if (lpFired.current) { lpFired.current = false; return; } setActiveAppId(app.id); }}
+                                {...longPress(() => handleOpenEditApp(app))}
+                                className="w-full rounded-[24px] p-4 text-left overflow-hidden border border-white/[0.07] bg-white/[0.035] backdrop-blur-xl active:scale-[0.98] transition min-h-[130px] flex flex-col justify-between select-none">
                                 <div className="absolute -top-8 -right-8 w-28 h-28 rounded-full blur-2xl opacity-50 pointer-events-none"
                                     style={{ background: `radial-gradient(circle, ${accent}, transparent 70%)` }} />
                                 <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl border border-white/[0.08] relative z-10"
@@ -3153,7 +3186,7 @@ ${olderText}
                         </div>
                     );
                 })}
-                <button onClick={() => setShowCreateModal(true)}
+                <button onClick={() => { resetAppForm(); setShowCreateModal(true); }}
                     className="rounded-[24px] p-4 border border-dashed border-white/15 bg-white/[0.02] flex flex-col items-center justify-center gap-2 active:scale-[0.98] transition min-h-[130px]">
                     <Plus size={24} weight="light" className="text-white/60" />
                     <span className="text-[11px] tracking-[0.2em] uppercase text-white/50">Add App</span>
@@ -3510,9 +3543,9 @@ ${olderText}
                 );
             })()}
 
-            {/* Create App Modal */}
-            <Modal isOpen={showCreateModal} title="安装自定义 App" onClose={() => setShowCreateModal(false)}
-                footer={<button onClick={handleCreateCustomApp} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl">安装到桌面</button>}>
+            {/* Create/Edit App Modal */}
+            <Modal isOpen={showCreateModal} title={editingAppId ? '编辑自定义 App' : '安装自定义 App'} onClose={() => { setShowCreateModal(false); resetAppForm(); }}
+                footer={<button onClick={handleCreateCustomApp} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl">{editingAppId ? '保存修改' : '安装到桌面'}</button>}>
                 <div className="space-y-4">
                     <div className="flex gap-4">
                         <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-md border border-white/10 shrink-0"
