@@ -239,7 +239,7 @@ const DevDebugPanel: React.FC = () => {
         closeDevDebug();
     };
     const resetRecruitment = () => {
-        if (!window.confirm('清除本机的忠实用户资格检测结果并刷新？仅用于测试不同数据集。')) return;
+        if (!window.confirm('清除本机的社区迁移检测结果并刷新？仅用于测试不同数据集。')) return;
         resetLoyalRecruitmentForTesting();
         window.location.reload();
     };
@@ -470,7 +470,7 @@ const DevDebugPanel: React.FC = () => {
                             className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-amber-300/15 px-3 text-[11px] font-bold text-amber-100 active:scale-95"
                         >
                             <ArrowsClockwise size={13} weight="bold" />
-                            资格重测
+                            迁移重测
                         </button>
                         <button
                             type="button"
