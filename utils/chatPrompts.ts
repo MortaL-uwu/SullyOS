@@ -14,6 +14,9 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { buildLifeRecordInjection } from './lifeRecords';
+import { getCharNameById } from './charNameRegistry';
+import { getLocalDateKey } from './localDate';
+import { getLocalDailySchedule } from './dailySchedule';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -193,6 +196,8 @@ export const ChatPrompts = {
         // MusicContext 的 cfg —— 用来给 char 自己的"此刻在听"拉稳定的歌词片段。
         // 不传也能用，只是 char 的 block 2 只有歌名 + 艺人，没有歌词。
         musicCfg?: MusicCfg,
+        // 刚才一起听途中歌被切了（char 还没重新加入）—— 注入"察觉换歌"提示。
+        recentTrackSwitch?: { songName: string; artists: string } | null,
     ): Promise<{ stable: string; volatileState: string; recencyTail: string }> => {
         // ── 分段计时（定位瓶颈用）──
         const perfT0 = performance.now();
@@ -226,7 +231,7 @@ export const ChatPrompts = {
         // ── 并发发起所有独立的异步取数（网络 + IndexedDB），下面按原顺序拼接 ──
         // 原来是 7 段串行 await，总耗时 = 各段之和；现在取 max。
         const config = realtimeConfig || defaultRealtimeConfig;
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateKey();
         // 自定义时区：开启后「当前时间」按角色所在时区折算，并附时差提示（异国恋等场景）
         const charTz = resolveCharTimeZone(char);
 
@@ -254,7 +259,7 @@ export const ChatPrompts = {
         //    总开关关闭时跳过查询与注入，确保不额外调用任何 LLM 依赖链
         const scheduleFeatureOn = isScheduleFeatureOn(char);
         const schedulePromise: Promise<DailySchedule | null> = scheduleFeatureOn
-            ? DB.getDailySchedule(char.id, today).catch(e => {
+            ? getLocalDailySchedule(char.id).catch(e => {
                 console.error('Failed to load daily schedule:', e);
                 return null;
             })
@@ -283,11 +288,20 @@ export const ChatPrompts = {
                 allGroupMsgs.sort((a, b) => a.timestamp - b.timestamp);
                 const recentGroupMsgs = allGroupMsgs;
                 if (recentGroupMsgs.length === 0) return '';
+                // 发言人标真实名字：匿名成 Member 会让角色分不清哪句是谁说的、
+                // 甚至认不出自己的发言，私聊被问起群里的事就接不住。
+                const speakerOf = (m: Message): string => {
+                    if (m.role === 'user') return userProfile.name;
+                    if (m.charId === char.id) return `你（${char.name}）`;
+                    return getCharNameById(m.charId) || '群友';
+                };
                 const groupLogStr = recentGroupMsgs.map(m => {
                     const dateStr = new Date(m.timestamp).toLocaleString([], {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
-                    return `[${dateStr}] [Group: ${m.groupName}] ${m.role === 'user' ? userProfile.name : 'Member'}: ${summarizeGroupMsgContent(m)}`;
+                    return `[${dateStr}] [群：${m.groupName}] ${speakerOf(m)}: ${summarizeGroupMsgContent(m)}`;
                 }).join('\n');
-                return `\n### [Background Context: Recent Group Activities]\n(注意：你是以下群聊的成员...)\n${groupLogStr}\n`;
+                return `\n### 【群聊背景 · 你亲历的近期群聊】
+（以下是你所在群里最近的真实聊天记录，按时间排序，发言人已标注；标「你」的就是你自己说的话。这些事你都亲身经历、记得清楚——私聊里对方问起或话题相关时，自然地接上就好，不要装作不知道；也不必刻意逐条汇报群里的动静。）
+${groupLogStr}\n`;
             } catch (e) {
                 console.error("Failed to load group context", e);
                 return '';
@@ -407,6 +421,7 @@ export const ChatPrompts = {
                 userListeningContext || null,
                 charListening,
                 isListeningTogether,
+                recentTrackSwitch,
             );
             if (musicBlock) {
                 volatileState += `\n${musicBlock}\n`;

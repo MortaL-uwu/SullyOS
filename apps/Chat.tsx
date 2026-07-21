@@ -9,6 +9,8 @@ import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCs
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
 import { FadersHorizontal } from '@phosphor-icons/react';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
+import { getLocalDailySchedule } from '../utils/dailySchedule';
+import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { generateSlotTheater } from '../utils/theaterGenerator';
 import TheaterPlayer from '../components/schedule/TheaterPlayer';
 import { formatMessageWithTime, normalizeMessageContent } from '../utils/messageFormat';
@@ -62,6 +64,7 @@ type InstantToolUiStatus = {
 const Chat: React.FC = () => {
     const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
+    const localDateKey = useLocalDateKey();
 
     // 记忆宫殿高水位（用于清空聊天时的安全检查）
     const getMemoryPalaceHWM = useCallback(async (charId: string): Promise<number> => {
@@ -209,6 +212,15 @@ const Chat: React.FC = () => {
     // 瑞幸聊天点单模式 (点"瑞一杯"激活: 角色直接调真实工具, 注入定位)
     const luckinChatRef = useRef<import('../utils/luckinToolBridge').LuckinChatState | undefined>(undefined);
 
+    // 生成闭包的回落守卫：triggerAI 的异步闭包在用户切到别的角色后才完成时（Chat 内
+    // 切角色不卸载组件），迟到的 setMessages 会把旧角色的消息灌进当前会话视图。
+    // 按消息 charId 丢弃不属于当前会话的回落——DB 已落库，且 OSContext 会因
+    // chat-gen-reply-arrived bump lastMsgTimestamp，切回该角色时自然取回。
+    const setMessagesFromGen = useCallback((msgs: Message[]) => {
+        if (msgs.some(m => m.charId && m.charId !== activeCharIdRef.current)) return;
+        setMessages(msgs);
+    }, []);
+
     // --- Initialize Hook ---
     const { isTyping, streamingBubbles, streamingThinking, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
         char,
@@ -219,7 +231,7 @@ const Chat: React.FC = () => {
         categories: visibleCategories,
         addToast,
         showError,
-        setMessages,
+        setMessages: setMessagesFromGen,
         onStreamPreviewHandover: registerStreamPreviewHandover,
         realtimeConfig,
         translationConfig: translationEnabled
@@ -611,7 +623,12 @@ const Chat: React.FC = () => {
             const chatScopeMsgs = recent
                 .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call')
                 .filter(m => !(currentChar?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card'));
-            setTotalMsgCount(totalCount);
+            // totalCount 走 charId 索引全量计数，包含群聊消息（以及上面被过滤的约会/通话
+            // 消息）——它们永远不会出现在单聊列表里。直接拿它算「加载历史消息」会出现
+            // 有计数、点击却加载不出任何东西的幽灵按钮。倒序游标没取满 fetchLimit 条
+            // 即说明该角色的单聊消息已全部在手，此时把总数钳到实际可展示的条数。
+            const exhausted = recent.length < fetchLimit;
+            setTotalMsgCount(exhausted ? chatScopeMsgs.length : totalCount);
             setMessages(chatScopeMsgs.slice(-requestedVisibleCount));
         };
         try {
@@ -746,8 +763,7 @@ const Chat: React.FC = () => {
             setScheduleData(null);
             return;
         }
-        const today = new Date().toISOString().split('T')[0];
-        DB.getDailySchedule(char.id, today).then(existing => {
+        getLocalDailySchedule(char.id).then(existing => {
             if (!existing) {
                 // Generate in background, don't block chat
                 generateDailySchedule(char, false);
@@ -755,7 +771,7 @@ const Chat: React.FC = () => {
                 setScheduleData(existing);
             }
         }).catch(() => {});
-    }, [activeCharacterId, char?.scheduleFeatureEnabled]);
+    }, [activeCharacterId, char?.scheduleFeatureEnabled, localDateKey]);
 
     // Load all messages when history-manager modal opens
     useEffect(() => {
@@ -918,7 +934,7 @@ const Chat: React.FC = () => {
                 charId: char.id,
                 url: text,
                 timestamp: Date.now(),
-                savedDate: new Date().toISOString().split('T')[0],
+                savedDate: localDateKey,
                 chatContext: recentChat
             });
             addToast('图片已保存至相册', 'info');
@@ -1477,8 +1493,7 @@ const Chat: React.FC = () => {
     const loadSchedule = async () => {
         if (!char) return;
         if (!isScheduleFeatureOn(char)) { setScheduleData(null); return; }
-        const today = new Date().toISOString().split('T')[0];
-        const s = await DB.getDailySchedule(char.id, today);
+        const s = await getLocalDailySchedule(char.id);
         setScheduleData(s);
     };
 
@@ -1633,8 +1648,7 @@ const Chat: React.FC = () => {
         // 打开后立刻尝试生成（若今日未生成且已选风格）
         const updatedChar = { ...char, ...patch };
         if (updatedChar.scheduleStyle) {
-            const today = new Date().toISOString().split('T')[0];
-            const existing = await DB.getDailySchedule(char.id, today).catch(() => null);
+            const existing = await getLocalDailySchedule(char.id).catch(() => null);
             if (existing) {
                 setScheduleData(existing);
             } else {
@@ -2534,9 +2548,10 @@ const Chat: React.FC = () => {
     // 动森下强制覆盖角色自定义聊天背景，保证整机一致的彩蛋观感
     // 进入/切换的过场由 CharacterEntryTransition 覆盖层负责，根容器不再自己做淡入。
     const finalRootStyle = acnh ? acnhRootStyle : chatRootStyle;
-    // 聊天细节微调 CSS（外观 → 聊天细节，全局打底；角色开了「聊天装扮」时逐字段覆盖）：
-    // 全默认时为空串，不注入任何 <style>
-    const chatFineTuneCss = useMemo(() => buildChatFineTuneCss(mergeChatFineTune(osTheme, char?.chatFineTune)), [osTheme, char?.chatFineTune]);
+    // 聊天细节微调（外观 → 聊天细节，全局打底；角色开了「聊天装扮」时逐字段覆盖）：
+    // CSS 全默认时为空串不注入；chatModuleAlign 不走 CSS，作为布局属性传给 MessageItem。
+    const mergedFineTune = useMemo(() => mergeChatFineTune(osTheme, char?.chatFineTune), [osTheme, char?.chatFineTune]);
+    const chatFineTuneCss = useMemo(() => buildChatFineTuneCss(mergedFineTune), [mergedFineTune]);
     const chatAvatarSizeClass = osTheme.chatAvatarSize === 'small' ? 'w-7 h-7' : osTheme.chatAvatarSize === 'large' ? 'w-12 h-12' : 'w-9 h-9';
     const chatAvatarRadiusClass = osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
     const chatPendingAvatarClass = `${chatAvatarSizeClass} ${chatAvatarRadiusClass} object-cover`;
@@ -3053,6 +3068,7 @@ const Chat: React.FC = () => {
                             charAvatar={char.avatar}
                             charName={char.name}
                             userAvatar={userProfile.perCharAvatars?.[char.id] || userProfile.avatar}
+                            moduleAlign={mergedFineTune.chatModuleAlign || 'center'}
                             onLongPress={handleMessageLongPress}
                             onReply={handleQuickReply}
                             selectionMode={selectionMode}

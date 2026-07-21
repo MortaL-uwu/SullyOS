@@ -74,6 +74,8 @@ export interface OSTheme {
   saturation: number;
   lightness: number;
   wallpaper: string;
+  /** 独立锁屏壁纸；未设置时跟随桌面 wallpaper。 */
+  lockWallpaper?: string;
   darkMode: boolean;
   contentColor?: string;
   /** 桌面整体皮肤。'animalcrossing' = 动森风格（NookPhone 彩色圆角图标 + 暖色界面）；
@@ -84,7 +86,13 @@ export interface OSTheme {
   acnhChatSync?: boolean;
   launcherWidgetImage?: string; // DEPRECATED: always stripped on load — never renders.
   launcherWidgets?: Record<string, string>; // slots: 'tl' | 'tr' | 'wide' | 'dsq' (legacy 'bl' / 'br' are banned)
-  /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（默认 false = 深色玻璃）。 */
+  /** 默认桌面长按编辑后的 App / Dock / 第二页风车组件顺序。 */
+  launcherAppOrder?: string[];
+  launcherDockOrder?: string[];
+  launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
+  preserveCustomIconOutlines?: boolean;
+  /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
   nowPlayingWidgetLight?: boolean;
   desktopDecorations?: DesktopDecoration[];
   customFont?: string;
@@ -111,6 +119,10 @@ export interface OSTheme {
   chatBubbleIndent?: number;
   /** 隐藏头像的一侧是否贴边（收回头像空位） */
   chatSnapToEdge?: boolean;
+  /** HTML 卡片 / 心象卡片 / 音乐卡片的出现位置：缺省/'center' = 水平居中（默认），'anchor' = 贴气泡列
+   *  （头像位，不随贴边/缩进挪动，即旧版观感）。经 MessageItem 布局属性生效（不走注入 CSS），
+   *  同属聊天细节微调字段、可按角色覆盖 */
+  chatModuleAlign?: 'anchor' | 'center';
   chatBubbleStyle?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
   chatMessageSpacing?: 'compact' | 'default' | 'spacious';
   chatShowTimestamp?: 'always' | 'hover' | 'never';
@@ -138,7 +150,8 @@ export interface OSTheme {
  *  与 OSTheme 同名字段一一对应，经 utils/chatFineTuneCss.ts 生成 CSS。 */
 export type ChatFineTuneFields = Pick<OSTheme,
   'chatAvatarVisibility' | 'chatAvatarAlign' | 'chatAvatarOffsetY' |
-  'chatBubbleFontSize' | 'chatBubbleLineHeight' | 'chatBubbleIndent' | 'chatSnapToEdge'>;
+  'chatBubbleFontSize' | 'chatBubbleLineHeight' | 'chatBubbleIndent' | 'chatSnapToEdge' |
+  'chatModuleAlign'>;
 
 /** 角色级「聊天装扮」覆盖：enabled=true 才生效；生效时已定义的字段逐个覆盖全局，
  *  未定义的字段跟随全局（合并规则见 utils/chatFineTuneCss.ts 的 mergeChatFineTune）。 */
